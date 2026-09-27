@@ -145,11 +145,22 @@ impl InputBaseState<EditorMode> {
             return;
         }
 
+        // Keep the query anchored where the word began only while the edit
+        // continues that word. An edit before it, or one separated from it by
+        // whitespace, starts a new query here.
         let start_offset = self
             .extras
             .context_menu_content
             .completion
             .trigger_start_offset
+            .filter(|&anchor| {
+                anchor <= range.start
+                    && !self
+                        .text
+                        .slice(anchor..range.start)
+                        .chars()
+                        .any(char::is_whitespace)
+            })
             .unwrap_or(start);
         if new_offset < start_offset {
             return;

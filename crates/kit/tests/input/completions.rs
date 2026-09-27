@@ -639,6 +639,87 @@ fn late_error_from_older_request_cannot_dismiss_newer_items(cx: &mut TestAppCont
     fixture.assert_editor("private", cx);
 }
 
+/// A provider shaped like a language server's keyword and slash-command
+/// source: it filters by the query the editor sends, not by the document.
+#[derive(Default)]
+struct Keywords {
+    queries: RefCell<Vec<String>>,
+}
+
+impl CompletionProvider for Keywords {
+    fn completions(
+        &self,
+        _: &Rope,
+        _: usize,
+        trigger: CompletionContext,
+        _: &mut Window,
+        _: &mut App,
+    ) -> Task<Result<CompletionResponse>> {
+        let query = trigger.trigger_character.unwrap_or_default();
+        let items = ["fn", "for", "/date", "/thanks"]
+            .into_iter()
+            .filter(|label| label.starts_with(&query))
+            .map(|label| CompletionItem {
+                label: label.into(),
+                ..Default::default()
+            })
+            .collect();
+        self.queries.borrow_mut().push(query);
+        Task::ready(Ok(CompletionResponse::Array(items)))
+    }
+
+    fn is_completion_trigger(&self, _: usize, new_text: &str, _: &mut App) -> bool {
+        !new_text.trim().is_empty()
+    }
+}
+
+fn keyword_fixture(cx: &mut TestAppContext) -> (Fixture, Rc<Keywords>) {
+    let fixture = Fixture::new(cx);
+    let provider = Rc::new(Keywords::default());
+    fixture.state.update(cx, |state, _| {
+        state.lsp_mut().completion_provider = Some(provider.clone());
+    });
+    (fixture, provider)
+}
+
+#[gpui_kit::test]
+fn typing_fn_on_a_new_line_starts_a_fresh_completion(cx: &mut TestAppContext) {
+    let (fixture, provider) = keyword_fixture(cx);
+    fixture.input("f", cx);
+    fixture.press("escape", cx);
+    fixture.press("enter", cx);
+    fixture.input("fn", cx);
+    // The query starts where this word does, not where the dismissed
+    // completion on the line above started.
+    assert_eq!(provider.queries.borrow().last().unwrap(), "fn");
+    fixture.press("enter", cx);
+    fixture.assert_editor("f\nfn", cx);
+}
+
+#[gpui_kit::test]
+fn slash_command_after_an_accepted_completion_starts_a_fresh_query(cx: &mut TestAppContext) {
+    let (fixture, provider) = keyword_fixture(cx);
+    fixture.input("f", cx);
+    fixture.press("enter", cx);
+    fixture.assert_editor("fn", cx);
+    fixture.input(" /", cx);
+    assert_eq!(provider.queries.borrow().last().unwrap(), "/");
+    fixture.press("enter", cx);
+    fixture.assert_editor("fn /date", cx);
+}
+
+#[gpui_kit::test]
+fn typing_before_an_earlier_completion_still_opens_suggestions(cx: &mut TestAppContext) {
+    let (fixture, provider) = keyword_fixture(cx);
+    fixture.input(" f", cx);
+    fixture.press("escape", cx);
+    fixture.press("home", cx);
+    fixture.input("f", cx);
+    assert_eq!(provider.queries.borrow().last().unwrap(), "f");
+    fixture.press("enter", cx);
+    fixture.assert_editor("fn f", cx);
+}
+
 #[cfg(target_os = "macos")]
 const CODE_ACTIONS: &str = "cmd-.";
 #[cfg(not(target_os = "macos"))]
