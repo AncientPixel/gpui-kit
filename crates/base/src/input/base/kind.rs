@@ -273,6 +273,17 @@ pub trait InputModeKind: sealed::Sealed + Sized + 'static {
     ) {
     }
 
+    /// Closes the completion and code-action menus because the text changed.
+    ///
+    /// Unlike [`Self::hide_context_menu`], this keeps the completion session,
+    /// so the next keystroke refines the same query.
+    fn invalidate_context_menu(
+        state: &mut InputBaseState<Self>,
+        cx: &mut gpui::Context<InputBaseState<Self>>,
+    ) {
+        Self::hide_context_menu(state, cx);
+    }
+
     /// Whether a completion or code-action menu is currently open.
     fn is_context_menu_open(_state: &InputBaseState<Self>, _cx: &gpui::App) -> bool {
         false

@@ -203,6 +203,7 @@ impl InputBaseState<EditorMode> {
 
             if completions.is_empty() {
                 editor.update(cx, |editor, cx| {
+                    editor.end_completion_session();
                     editor.extras.context_menu_content.completion.open = false;
                     editor.extras.context_menu_content.completion.items.clear();
                     editor.extras.context_menu_content.completion.bump();
@@ -234,11 +235,27 @@ impl InputBaseState<EditorMode> {
         });
     }
 
+    /// Close the menus and end the completion session, so the next trigger
+    /// starts a new query where it is typed.
     pub(crate) fn hide_context_menu(&mut self, cx: &mut Context<Self>) {
+        self.end_completion_session();
+        self.invalidate_context_menu(cx);
+    }
+
+    /// Close the menus after an edit. The completion session survives it, so
+    /// typing on refines the query from where the word began.
+    pub(crate) fn invalidate_context_menu(&mut self, cx: &mut Context<Self>) {
         self.extras.context_menu_content.completion.open = false;
         self.extras.context_menu_content.code_action.open = false;
         self.extras.context_menu_task = Task::ready(Ok(()));
         cx.notify();
+    }
+
+    pub(super) fn end_completion_session(&mut self) {
+        self.extras
+            .context_menu_content
+            .completion
+            .trigger_start_offset = None;
     }
 
     pub(crate) fn is_context_menu_open(&self, _cx: &gpui::App) -> bool {

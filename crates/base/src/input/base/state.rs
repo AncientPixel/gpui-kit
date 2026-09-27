@@ -3581,7 +3581,7 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         // Every edit invalidates provider responses for the previous document,
         // including deletion and indentation which do not trigger completion.
-        M::hide_context_menu(self, cx);
+        M::invalidate_context_menu(self, cx);
         M::clear_inline_completion(self, cx);
 
         // Sort descending by start so applying front-of-vec first edits the

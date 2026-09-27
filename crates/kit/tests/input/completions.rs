@@ -720,6 +720,30 @@ fn typing_before_an_earlier_completion_still_opens_suggestions(cx: &mut TestAppC
     fixture.assert_editor("fn f", cx);
 }
 
+#[gpui_kit::test]
+fn slash_right_after_an_accepted_completion_starts_a_fresh_query(cx: &mut TestAppContext) {
+    let (fixture, provider) = keyword_fixture(cx);
+    fixture.input("f", cx);
+    fixture.press("enter", cx);
+    fixture.input("/", cx);
+    // Accepting ends the session, so the accepted word is not part of the
+    // next query even with nothing between them.
+    assert_eq!(provider.queries.borrow().last().unwrap(), "/");
+    fixture.press("enter", cx);
+    fixture.assert_editor("fn/date", cx);
+}
+
+#[gpui_kit::test]
+fn slash_right_after_escape_starts_a_fresh_query(cx: &mut TestAppContext) {
+    let (fixture, provider) = keyword_fixture(cx);
+    fixture.input("f", cx);
+    fixture.press("escape", cx);
+    fixture.input("/", cx);
+    assert_eq!(provider.queries.borrow().last().unwrap(), "/");
+    fixture.press("enter", cx);
+    fixture.assert_editor("f/date", cx);
+}
+
 #[cfg(target_os = "macos")]
 const CODE_ACTIONS: &str = "cmd-.";
 #[cfg(not(target_os = "macos"))]

@@ -150,6 +150,7 @@ impl InputBaseState<EditorMode> {
     }
 
     pub fn dismiss_completion_overlay(&mut self, cx: &mut Context<Self>) {
+        self.end_completion_session();
         if self.extras.context_menu_content.completion.open {
             self.extras.context_menu_content.completion.open = false;
             cx.notify();
@@ -193,6 +194,7 @@ impl InputBaseState<EditorMode> {
         let range = self.range_to_utf16(&range);
         self.replace_text_in_range_silent(Some(range), &new_text, window, cx);
         self.completion_inserting = false;
+        self.end_completion_session();
         self.focus(window, cx);
     }
 
