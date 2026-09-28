@@ -48,15 +48,19 @@ pub(crate) fn init(cx: &mut App) {
         });
     });
 
-    cx.register_inspector_element(|window, cx| {
-        let div_inspector = cx.new(|cx| DivInspector::new(window, cx));
+    let div_inspector = std::cell::RefCell::new(None::<Entity<DivInspector>>);
+    cx.register_inspector_element(
         move |id, state: &DivInspectorState, window: &mut Window, cx: &mut App| {
+            let div_inspector = div_inspector
+                .borrow_mut()
+                .get_or_insert_with(|| cx.new(|cx| DivInspector::new(window, cx)))
+                .clone();
             div_inspector.update(cx, |this, cx| {
                 this.update_inspected_element(id, state.clone(), window, cx);
                 this.render(window, cx).into_any_element()
             })
-        }
-    });
+        },
+    );
 
     cx.set_inspector_renderer(Box::new(render_inspector));
 }
