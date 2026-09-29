@@ -13,6 +13,8 @@ default = ["tree-sitter"]
 [dependencies]
 anyhow.workspace = true
 gpui-kit.workspace = true
+# TEMP (gpui-fast): its macros expand to `::gpui`.
+gpui.workspace = true
 gpui-fps.workspace = true
 
 async-channel = "2.3.1"
