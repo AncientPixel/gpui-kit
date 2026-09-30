@@ -335,12 +335,5 @@ pub(super) fn sync_focused_input_registry(
 ) {
     let state = state.into();
     let focused = state.focus_handle(cx).is_focused(window);
-    WindowState::try_update(window, cx, |root, _, cx| {
-        if focused {
-            root.focused_input = Some(state.clone());
-        } else if root.focused_input.as_ref() == Some(&state) {
-            root.focused_input = None;
-        }
-        cx.notify();
-    });
+    WindowState::sync_focused_input(&state, focused, window, cx);
 }

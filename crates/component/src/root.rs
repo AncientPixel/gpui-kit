@@ -122,6 +122,35 @@ impl WindowState {
         Some(root.update(cx, |root, cx| f(root, window, cx)))
     }
 
+    /// Records whether `state` holds focus. Called from every input's render,
+    /// so it reads first and writes only on a change: writing the window state
+    /// while drawing counts as changing it and rebuilds every view reading it.
+    pub(crate) fn sync_focused_input(
+        state: &AnyInputState,
+        focused: bool,
+        window: &Window,
+        cx: &mut App,
+    ) {
+        let Some(root) = Self::entity(window, cx) else {
+            return;
+        };
+        let current = &root.read(cx).focused_input;
+        let next = if focused {
+            Some(state.clone())
+        } else if current.as_ref() == Some(state) {
+            None
+        } else {
+            return;
+        };
+        if *current == next {
+            return;
+        }
+        root.update(cx, |root, cx| {
+            root.focused_input = next;
+            cx.notify();
+        });
+    }
+
     pub fn read<'a>(window: &'a Window, cx: &'a App) -> &'a Self {
         Self::entity(window, cx).expect(ROOT_MISSING).read(cx)
     }

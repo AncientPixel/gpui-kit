@@ -1,9 +1,9 @@
+#[cfg(not(target_family = "wasm"))]
+use std::time::Instant;
 use std::{
     cell::{Cell, RefCell},
     rc::{Rc, Weak},
 };
-#[cfg(not(target_family = "wasm"))]
-use std::time::Instant;
 #[cfg(target_family = "wasm")]
 use web_time::Instant;
 
