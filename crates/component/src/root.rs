@@ -167,12 +167,11 @@ impl WindowState {
 
             let size = sheet.size;
 
-            return Some(
-                div()
-                    .relative()
-                    .child(sheet)
-                    .on_prepaint(move |_, _, cx| root.update(cx, |r, _| r.sheet_size = Some(size))),
-            );
+            return Some(div().relative().child(sheet).on_prepaint(move |_, _, cx| {
+                if root.read(cx).sheet_size != Some(size) {
+                    root.update(cx, |r, _| r.sheet_size = Some(size))
+                }
+            }));
         }
 
         None

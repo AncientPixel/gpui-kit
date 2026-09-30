@@ -729,7 +729,10 @@ impl Element for TextView {
         }
         request_layout.element.prepaint(window, cx);
         if max_lines_active {
-            GlobalState::global(cx).text_view_state_stack.borrow_mut().pop();
+            GlobalState::global(cx)
+                .text_view_state_stack
+                .borrow_mut()
+                .pop();
         }
 
         let mut clip_bottom = None;
@@ -810,7 +813,10 @@ impl Element for TextView {
         } else {
             request_layout.element.paint(window, cx);
         }
-        GlobalState::global(cx).text_view_state_stack.borrow_mut().pop();
+        GlobalState::global(cx)
+            .text_view_state_stack
+            .borrow_mut()
+            .pop();
 
         // Every list has scrolled by now, so the line of a reveal is where
         // it ends up this frame.

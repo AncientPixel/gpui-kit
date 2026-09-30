@@ -680,7 +680,13 @@ impl RenderOnce for SliderIndicator {
             .children(self.children)
             .on_prepaint({
                 let state = self.state;
-                move |bounds, _, cx| state.update(cx, |state, _| state.set_bounds(bounds))
+                move |bounds, _, cx| {
+                    // Runs every frame: writing the state while drawing counts
+                    // as changing it, so only write when the bounds moved.
+                    if state.read(cx).bounds != bounds {
+                        state.update(cx, |state, _| state.set_bounds(bounds))
+                    }
+                }
             })
     }
 }

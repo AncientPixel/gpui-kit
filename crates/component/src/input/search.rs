@@ -379,7 +379,9 @@ impl<M: crate::input::overlay::OverlayMode> Render for SearchPanel<M> {
                             .on_prepaint({
                                 let view = cx.entity();
                                 move |bounds, _, cx| {
-                                    view.update(cx, |r, _| r.input_width = bounds.size.width)
+                                    if view.read(cx).input_width != bounds.size.width {
+                                        view.update(cx, |r, _| r.input_width = bounds.size.width)
+                                    }
                                 }
                             }),
                     )

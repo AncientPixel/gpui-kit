@@ -1713,7 +1713,13 @@ where
             // to save the bounds of this col.
             .on_prepaint({
                 let view = cx.entity().clone();
-                move |bounds, _, cx| view.update(cx, |r, _| r.col_groups[col_ix].bounds = bounds)
+                move |bounds, _, cx| {
+                    // Runs every frame: only write the state when the bounds
+                    // moved, since writing it while drawing counts as a change.
+                    if view.read(cx).col_groups[col_ix].bounds != bounds {
+                        view.update(cx, |r, _| r.col_groups[col_ix].bounds = bounds)
+                    }
+                }
             })
     }
 
@@ -1905,7 +1911,9 @@ where
                                 .border_color(cx.theme().border),
                         )
                         .on_prepaint(move |bounds, _, cx| {
-                            view.update(cx, |r, _| r.fixed_head_cols_bounds = bounds)
+                            if view.read(cx).fixed_head_cols_bounds != bounds {
+                                view.update(cx, |r, _| r.fixed_head_cols_bounds = bounds)
+                            }
                         }),
                 )
             })
@@ -2596,7 +2604,11 @@ where
             })
             .on_prepaint({
                 let state = cx.entity();
-                move |bounds, _, cx| state.update(cx, |state, _| state.bounds = bounds)
+                move |bounds, _, cx| {
+                    if state.read(cx).bounds != bounds {
+                        state.update(cx, |state, _| state.bounds = bounds)
+                    }
+                }
             })
             .when(!window.is_inspector_picking(cx), |this| {
                 this.child(

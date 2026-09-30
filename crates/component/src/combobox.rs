@@ -674,7 +674,11 @@ where
                 .relative()
                 .on_prepaint({
                     let state = cx.entity();
-                    move |bounds, _, cx| state.update(cx, |r, _| r.state.bounds = bounds)
+                    move |bounds, _, cx| {
+                        if state.read(cx).state.bounds != bounds {
+                            state.update(cx, |r, _| r.state.bounds = bounds)
+                        }
+                    }
                 })
                 .child(render_trigger_container(
                     disabled,

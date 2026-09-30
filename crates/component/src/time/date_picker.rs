@@ -710,7 +710,11 @@ impl RenderOnce for DatePicker {
             .relative()
             .on_prepaint({
                 let state = self.state.clone();
-                move |bounds, _, cx| state.update(cx, |state, _| state.bounds = bounds)
+                move |bounds, _, cx| {
+                    if state.read(cx).bounds != bounds {
+                        state.update(cx, |state, _| state.bounds = bounds)
+                    }
+                }
             })
             .input_text_size(self.size)
             .refine_style(&self.style)

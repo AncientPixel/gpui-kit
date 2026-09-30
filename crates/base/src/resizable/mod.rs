@@ -197,6 +197,19 @@ impl ResizableState {
         }
     }
 
+    /// Whether [`Self::update_panel_size`] would change anything, checked
+    /// before leasing the state from a prepaint that runs every frame.
+    pub(crate) fn panel_size_outdated(
+        &self,
+        panel_ix: usize,
+        bounds: Bounds<Pixels>,
+        size_range: &Range<Pixels>,
+    ) -> bool {
+        self.sizes[panel_ix].as_f32() == PANEL_MIN_SIZE.as_f32()
+            || self.panels[panel_ix].bounds != bounds
+            || self.panels[panel_ix].size_range != *size_range
+    }
+
     pub(crate) fn update_panel_size(
         &mut self,
         panel_ix: usize,

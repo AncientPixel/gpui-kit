@@ -972,35 +972,36 @@ impl Render for CommandState {
                     .on_prepaint({
                         let measure_state = command_state.clone();
                         move |bounds, window, cx| {
-                            measure_state.update(cx, |state, cx| {
-                                // The list's `p_1` is one quarter rem on each
-                                // side. Its rem-dependent padding and inherited
-                                // layout-relevant text style participate in
-                                // the row-size cache key.
-                                let text_style = window.text_style();
-                                state.set_list_measurement_key(
-                                    ListMeasurementKey {
-                                        content_width: (bounds.size.width
-                                            - window.rem_size() * 0.5)
-                                            .max(px(0.)),
-                                        rem_size: window.rem_size(),
-                                        line_height: window.line_height(),
-                                        text_shape: TextShapeKey {
-                                            font_family: text_style.font_family,
-                                            font_features: text_style.font_features,
-                                            font_fallbacks: text_style.font_fallbacks,
-                                            font_size: text_style.font_size,
-                                            font_weight: text_style.font_weight,
-                                            font_style: text_style.font_style,
-                                            white_space: text_style.white_space,
-                                            text_overflow: text_style.text_overflow,
-                                            line_clamp: text_style.line_clamp,
-                                        },
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })
+                            // The list's `p_1` is one quarter rem on each
+                            // side. Its rem-dependent padding and inherited
+                            // layout-relevant text style participate in
+                            // the row-size cache key.
+                            let text_style = window.text_style();
+                            let key = ListMeasurementKey {
+                                content_width: (bounds.size.width - window.rem_size() * 0.5)
+                                    .max(px(0.)),
+                                rem_size: window.rem_size(),
+                                line_height: window.line_height(),
+                                text_shape: TextShapeKey {
+                                    font_family: text_style.font_family,
+                                    font_features: text_style.font_features,
+                                    font_fallbacks: text_style.font_fallbacks,
+                                    font_size: text_style.font_size,
+                                    font_weight: text_style.font_weight,
+                                    font_style: text_style.font_style,
+                                    white_space: text_style.white_space,
+                                    text_overflow: text_style.text_overflow,
+                                    line_clamp: text_style.line_clamp,
+                                },
+                            };
+                            // Runs every frame: only lease the state when the
+                            // key changed, since writing it while drawing
+                            // counts as changing it.
+                            if measure_state.read(cx).list_measurement_key.as_ref() != Some(&key) {
+                                measure_state.update(cx, |state, cx| {
+                                    state.set_list_measurement_key(key, window, cx)
+                                })
+                            }
                         }
                     })
                     .max_h(self.options.max_h)
