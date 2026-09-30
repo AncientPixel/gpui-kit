@@ -2580,7 +2580,7 @@ impl Element for TextSelectionLayer {
         // first of two selected TextViews temporarily reverses their order
         // against the previous frame and alternates coverage forever.
         GlobalState::init(cx);
-        GlobalState::global_mut(cx).begin_selection_frame();
+        GlobalState::global(cx).begin_selection_frame();
         let state = retain_text_selection_state(global_id, window, cx);
         // The handles and the menu register again as they paint this frame.
         state.update(cx, |state, _| state.touch.begin_frame());

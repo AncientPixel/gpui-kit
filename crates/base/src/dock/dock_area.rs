@@ -1481,7 +1481,12 @@ impl Render for DockArea {
             .flex()
             .flex_row()
             .on_prepaint(move |bounds, _, cx| {
-                area.update(cx, |area, _| area.bounds = bounds);
+                // Runs every frame: writing the area while drawing counts as
+                // changing it, and every tab group that reads it would be
+                // built again on every frame.
+                if area.read(cx).bounds != bounds {
+                    area.update(cx, |area, _| area.bounds = bounds);
+                }
             })
             .track_focus(&self.focus_handle)
             .map(|frame| match self.zoomed_view() {
