@@ -1,3 +1,6 @@
+// TEMP (gpui-fast): its macros expand to `::gpui`; resolve that to the Kit.
+extern crate gpui_kit as gpui;
+
 use gpui_fps::fps_monitor;
 use gpui_kit::component::{
     ActiveTheme, IconName, Root, Sizable as _, Size as ComponentSize, StyledExt as _,

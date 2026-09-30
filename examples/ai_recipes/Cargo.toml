@@ -10,8 +10,6 @@ gpui-kit.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
-# TEMP (gpui-fast): its macros expand to `::gpui`.
-gpui.workspace = true
 
 [lints]
 workspace = true

@@ -1,3 +1,6 @@
+// TEMP (gpui-fast): its macros expand to `::gpui`; resolve that to the Kit.
+extern crate gpui_kit as gpui;
+
 pub mod bootstrap;
 pub mod command_control;
 pub mod controlled_value;

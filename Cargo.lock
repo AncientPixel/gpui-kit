@@ -3962,7 +3962,6 @@ dependencies = [
  "dirs",
  "fake",
  "getrandom 0.2.17",
- "gpui",
  "gpui-fps",
  "gpui-kit",
  "gpui-shell",
@@ -4043,7 +4042,6 @@ dependencies = [
 name = "gpui-kit-recipes"
 version = "0.7.0"
 dependencies = [
- "gpui",
  "gpui-kit",
 ]
 

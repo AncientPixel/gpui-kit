@@ -1,3 +1,6 @@
+// TEMP (gpui-fast): its macros expand to `::gpui`; resolve that to the Kit.
+extern crate gpui_kit as gpui;
+
 use gpui_component_story::{Gallery, create_new_window, init};
 use gpui_kit::assets::AllAssets;
 
