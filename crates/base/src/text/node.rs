@@ -5,16 +5,16 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, DefiniteLength, Div, ElementId, FontStyle, FontWeight, HighlightStyle, Hsla,
-    Image, ImageFormat, ImageSource, InteractiveElement as _, IntoElement, IsZero as _, Length,
-    ObjectFit, Overflow, ParentElement, Pixels, Rems, ScrollHandle, SharedString, SharedUri,
-    StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _, WhiteSpace, Window, div,
-    img, prelude::FluentBuilder as _, px, relative, rems,
+    AnyElement, App, Axis, DefiniteLength, Div, ElementId, FontStyle, FontWeight, HighlightStyle,
+    Hsla, Image, ImageFormat, ImageSource, InteractiveElement as _, IntoElement, IsZero as _,
+    Length, ObjectFit, Overflow, ParentElement, Pixels, Rems, ScrollHandle, SharedString,
+    SharedUri, StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _, WhiteSpace,
+    Window, div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use markdown::mdast;
 
 use crate::{
-    StyledExt, h_flex,
+    ScrollableMask, Scrollbar, StyledExt, h_flex,
     scrollable_mask::horizontal_scroll_area,
     text::{
         CodeBlockActionsFn, CodeBlockHighlighterFn, LinkClickHandlerFn, MarkdownExtensions,
@@ -1993,24 +1993,55 @@ impl CodeBlock {
                 .range_backgrounds(node_cx.range_backgrounds(leaf_key).to_vec())
                 .reveal(node_cx.reveal_at(leaf_key, 0, self.code().len())),
             );
+        let actions = node_cx.code_block_actions.clone().map(|actions| {
+            div()
+                .id("actions")
+                .absolute()
+                .top_2()
+                .right_2()
+                .bg(style.code_background())
+                .rounded(cx.theme().tokens.radius.md)
+                .child(actions(&self, window, cx))
+        });
         // The id scopes the caller's action ids per code block, so plain ids
-        // like `"copy"` don't collide across blocks; without actions nothing
-        // under the block needs element state.
-        let block = match node_cx.code_block_actions.clone() {
-            Some(actions) => block
-                .id(block_element_id("codeblock", self.span, options.ix))
+        // like `"copy"` don't collide across blocks.
+        let id = block_element_id("codeblock", self.span, options.ix);
+        let block = if matches!(style.code_block().overflow.y, Some(Overflow::Scroll)) {
+            let scroll_handle = window
+                .use_keyed_state(
+                    block_element_id("codeblock-scroll", self.span, options.ix),
+                    cx,
+                    |_, _| ScrollHandle::default(),
+                )
+                .read(cx)
+                .clone();
+            // Scroll mode is opted in by setting `style.code_block`'s
+            // `overflow.y` to `Overflow::Scroll`.
+            // The mask consumes the wheel in the capture phase, so an ancestor
+            // `gpui::list` doesn't scroll on the same event. Mask, scrollbar
+            // and actions are siblings of the scrolled block, so they stay
+            // pinned to the viewport instead of moving with the code.
+            div()
+                .id(id.clone())
+                .w_full()
+                .min_w_0()
+                .relative()
+                .child(block.id("scroll").track_scroll(&scroll_handle))
+                .child(ScrollableMask::new(Axis::Vertical, &scroll_handle).id(id))
                 .child(
                     div()
-                        .id("actions")
                         .absolute()
-                        .top_2()
-                        .right_2()
-                        .bg(style.code_background())
-                        .rounded(cx.theme().tokens.radius.md)
-                        .child(actions(&self, window, cx)),
+                        .inset_0()
+                        .child(Scrollbar::vertical(&scroll_handle)),
                 )
-                .into_any_element(),
-            None => block.into_any_element(),
+                .children(actions)
+                .into_any_element()
+        } else {
+            // Without actions nothing under the block needs element state.
+            match actions {
+                Some(actions) => block.id(id).child(actions).into_any_element(),
+                None => block.into_any_element(),
+            }
         };
 
         gapped(

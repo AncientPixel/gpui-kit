@@ -144,6 +144,11 @@ impl TextViewStyle {
     }
 
     /// Sets the style refinement for code blocks.
+    ///
+    /// Set `overflow.y` to `Overflow::Scroll` together with a max height to
+    /// scroll long code inside the block: it gets its own scrollbar, and wheel
+    /// input over it no longer scrolls an ancestor list until the code reaches
+    /// its edge.
     pub fn with_code_block(mut self, style: StyleRefinement) -> Self {
         self.code_block = style;
         self
