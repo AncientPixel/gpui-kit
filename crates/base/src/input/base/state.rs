@@ -4379,8 +4379,12 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
             y_offset += line.size(line_height).height;
         }
 
-        let start_origin = start_origin.unwrap_or_default();
-        let mut end_origin = end_origin.unwrap_or_default();
+        let start_origin = start_origin.or_else(|| {
+            let offset = self.last_cursor.or(Some(self.cursor()))?;
+            let (_, _, origin) = self.line_and_position_for_offset(offset);
+            origin.map(|origin| origin - line_number_origin)
+        })?;
+        let mut end_origin = end_origin.unwrap_or(start_origin);
         // Ensure at same line.
         end_origin.y = start_origin.y;
 
@@ -9885,6 +9889,59 @@ mod tests {
             });
         });
         assert_ne!(input.read_with(&cx, |state, _| state.paste_target()), moved);
+    }
+
+    #[gpui::test]
+    fn test_ime_candidate_bounds_fallback_before_repaint(cx: &mut TestAppContext) {
+        let input_view = InputView::build_textarea(cx, |state| {
+            state.default_value("这是一段已经输入的中文文字")
+        });
+        let mut visual = VisualTestContext::from_window(input_view.window_handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+
+        visual.update(|window, cx| {
+            input_view.input.update(cx, |state, cx| {
+                state.focus(window, cx);
+                let len = state.text.len();
+                state.set_cursor_to(len);
+            });
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+
+        visual.update(|window, cx| {
+            input_view.input.update(cx, |state, cx| {
+                let bounds = state.text_bounds().unwrap_or_default();
+                let before = state.selected_text_range(false, window, cx).unwrap().range;
+                let previous = state
+                    .bounds_for_range(before.end..before.end, bounds, window, cx)
+                    .unwrap();
+
+                state.replace_and_mark_text_in_range(None, "n", None, window, cx);
+
+                let after = state.selected_text_range(false, window, cx).unwrap().range;
+                let pending = state
+                    .bounds_for_range(after.end..after.end, bounds, window, cx)
+                    .unwrap();
+
+                assert!(
+                    (pending.origin.x - previous.origin.x).abs() < px(40.0),
+                    "pending origin.x {:?} must remain close to previous origin.x {:?}",
+                    pending.origin.x,
+                    previous.origin.x
+                );
+
+                let range_bounds = state
+                    .bounds_for_range(before.end..after.end, bounds, window, cx)
+                    .unwrap();
+                assert!(
+                    (range_bounds.origin.x - previous.origin.x).abs() < px(40.0),
+                    "range_bounds origin.x {:?} must remain close to previous origin.x {:?}",
+                    range_bounds.origin.x,
+                    previous.origin.x
+                );
+                assert!(range_bounds.size.width >= px(0.0));
+            });
+        });
     }
 }
 
