@@ -2790,6 +2790,23 @@ impl<M: InputModeKind> InputBaseState<M> {
         selection
     }
 
+    /// Whether an edit rewrites the character before a collapsed cursor, as the
+    /// macOS Korean IME does on each keystroke instead of marking text.
+    fn rewrites_typed_char(
+        &self,
+        selection: CursorSelection,
+        range: &Range<usize>,
+        old_text: &str,
+        new_text: &str,
+    ) -> bool {
+        !self.silent_replace_text
+            && selection.is_collapsed()
+            && selection.cursor_offset() == range.end
+            && old_text.chars().count() == 1
+            && !old_text.contains(['\n', '\r'])
+            && !new_text.contains(['\n', '\r'])
+    }
+
     fn push_history(
         &mut self,
         text: &Rope,
@@ -2815,6 +2832,7 @@ impl<M: InputModeKind> InputBaseState<M> {
                 && old_text.is_empty()
                 && !new_text.is_empty()
                 && !new_text.contains(['\n', '\r'])
+                || self.rewrites_typed_char(selection_before, &range, &old_text, new_text)
             {
                 EditIntent::Typing
             } else {
@@ -7214,6 +7232,61 @@ mod tests {
 
                 assert_eq!(state.value(), "a");
                 assert!(!state.undo_manager.has_undos());
+            });
+        });
+    }
+
+    /// The macOS Korean IME rewrites the character it just inserted.
+    #[gpui::test]
+    fn test_undo_manager_ime_rewrites_of_typed_char_are_one_group(cx: &mut TestAppContext) {
+        let input_view = InputView::build(cx, |state| state);
+        let mut cx = VisualTestContext::from_window(input_view.window_handle.into(), cx);
+        let input = input_view.input;
+
+        cx.update(|window, cx| {
+            input.update(cx, |state, cx| {
+                state.set_value("é ", window, cx);
+                state.set_selected_range(3..3, cx);
+                // g k s r m f: "ㅎ" -> "하" -> "한", then "ㄱ" -> "그" -> "글"
+                state.replace_text_in_range(None, "ㅎ", window, cx);
+                state.replace_text_in_range(Some(2..3), "하", window, cx);
+                state.replace_text_in_range(Some(2..3), "한", window, cx);
+                state.replace_text_in_range(None, "ㄱ", window, cx);
+                state.replace_text_in_range(Some(3..4), "그", window, cx);
+                state.replace_text_in_range(Some(3..4), "글", window, cx);
+                assert_eq!(state.value(), "é 한글");
+                assert_eq!(state.undo_manager.undo_count(), 1);
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.value(), "é ");
+                assert_eq!(state.selected_range(), 3..3);
+
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.value(), "é 한글");
+                assert_eq!(state.selected_range(), 9..9);
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn test_undo_manager_rewrite_after_cursor_movement_is_separate(cx: &mut TestAppContext) {
+        let input_view = InputView::build(cx, |state| state);
+        let mut cx = VisualTestContext::from_window(input_view.window_handle.into(), cx);
+        let input = input_view.input;
+
+        cx.update(|window, cx| {
+            input.update(cx, |state, cx| {
+                state.replace_text_in_range(None, "c", window, cx);
+                state.replace_text_in_range(None, "e", window, cx);
+                state.left(&MoveLeft, window, cx);
+                state.right(&MoveRight, window, cx);
+                state.replace_text_in_range(Some(1..2), "é", window, cx);
+                assert_eq!(state.value(), "cé");
+
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.value(), "ce");
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.value(), "");
             });
         });
     }
