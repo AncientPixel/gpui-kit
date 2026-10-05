@@ -233,6 +233,10 @@ fn parse_table_row(source: &str, table: &mut Table, node: &mdast::TableRow, cx: 
             _ => {}
         };
     });
+    // GFM fixes the column count with the header/delimiter, not each body row.
+    // Padding/truncation keeps every row on the same measured column grid.
+    row.children
+        .resize_with(table.column_aligns.len(), Default::default);
     table.children.push(row);
 }
 
@@ -1209,6 +1213,24 @@ mod tests {
         let start = code_text.find(selected_text).expect("selected MDX code");
         code.set_selection(start..start + selected_text.len());
         document.selected_source_range()
+    }
+
+    #[test]
+    fn table_rows_use_header_column_count() {
+        let mut cx = NodeContext::default();
+        let document = parse(
+            "| A | B | C |\n| --- | --- | --- |\n| one |\n| two | three | four | ignored |\n",
+            &mut cx,
+        )
+        .unwrap();
+        let BlockNode::Table(table) = &document.blocks[0] else {
+            panic!("expected table");
+        };
+        assert_eq!(table.column_aligns.len(), 3);
+        assert!(table.children.iter().all(|row| row.children.len() == 3));
+        assert_eq!(table.children[1].children[0].children.text(), "one");
+        assert!(table.children[1].children[1].children.text().is_empty());
+        assert_eq!(table.children[2].children[2].children.text(), "four");
     }
 
     #[test]
