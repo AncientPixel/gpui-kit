@@ -8,8 +8,9 @@ use gpui::{
     AnyElement, App, Axis, DefiniteLength, Div, ElementId, FontStyle, FontWeight, HighlightStyle,
     Hsla, Image, ImageFormat, ImageSource, InteractiveElement as _, IntoElement, IsZero as _,
     Length, ObjectFit, Overflow, ParentElement, Pixels, Rems, ScrollHandle, SharedString,
-    SharedUri, StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _, WhiteSpace,
-    Window, div, img, prelude::FluentBuilder as _, px, relative, rems,
+    SharedUri, StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _,
+    TextStyleRefinement, WhiteSpace, Window, div, img, prelude::FluentBuilder as _, px, relative,
+    rems,
 };
 use markdown::mdast;
 
@@ -19,7 +20,7 @@ use crate::{
     text::{
         CodeBlockActionsFn, CodeBlockHighlighterFn, LinkClickHandlerFn, MarkdownExtensions,
         MarkdownNode, TableActionsFn,
-        document::NodeRenderOptions,
+        document::{NodeRenderOptions, PrevBlock, flow_position},
         inline::{
             Inline, InlineHighlight, InlineState, combine_highlights, fade_highlights, text_runs,
             text_size_ranges,
@@ -1209,10 +1210,7 @@ impl Paragraph {
                 let mut highlight = mark_highlight(style, node_cx, cx);
                 if let Some(link_mark) = style.link.clone() {
                     highlight.style.color = Some(node_cx.style.link());
-                    highlight.style.underline = Some(gpui::UnderlineStyle {
-                        thickness: gpui::px(1.),
-                        ..Default::default()
-                    });
+                    highlight.style.underline = Some(link_underline(&node_cx.style));
                     links.push((inner_range.clone(), link_mark));
                 }
                 node_highlights.push((inner_range, highlight));
@@ -1963,14 +1961,41 @@ impl CodeBlock {
     ) -> AnyElement {
         let style = &node_cx.style;
         let leaf_key = self.span.map(|span| TextLeafKey::block(span.start));
+        // The language sits quietly in the top-right corner, where custom
+        // actions go instead when the caller provides them; the top padding
+        // keeps the first line clear of it. Like the actions, it stays out of
+        // the scrolled content so it holds its corner.
+        let lang_label = self
+            .lang()
+            .filter(|lang| !lang.is_empty() && node_cx.code_block_actions.is_none())
+            .map(|lang| {
+                div()
+                    .absolute()
+                    .top(px(7.))
+                    .right_3()
+                    .font_family(cx.theme().tokens.typography.sans.clone())
+                    .text_size(cx.theme().tokens.typography.xs.size)
+                    .line_height(px(16.))
+                    .text_color(style.muted_foreground())
+                    .child(lang)
+            });
 
         let block = div()
             .w_full()
             .min_w_0()
-            .p_3()
+            .px_4()
+            .pt(if lang_label.is_some() {
+                px(28.)
+            } else {
+                px(14.)
+            })
+            .pb(px(14.))
             .bg(style.code_background())
+            .border_1()
+            .border_color(style.border())
             .font_family(cx.theme().tokens.typography.mono.clone())
             .text_size(cx.theme().tokens.typography.mono_md.size)
+            .line_height(relative(1.6))
             .relative()
             .refine_style(&style.code_block())
             .child(
@@ -2035,12 +2060,13 @@ impl CodeBlock {
                         .child(Scrollbar::vertical(&scroll_handle)),
                 )
                 .children(actions)
+                .children(lang_label)
                 .into_any_element()
         } else {
             // Without actions nothing under the block needs element state.
             match actions {
                 Some(actions) => block.id(id).child(actions).into_any_element(),
-                None => block.into_any_element(),
+                None => block.children(lang_label).into_any_element(),
             }
         };
 
@@ -2075,6 +2101,9 @@ pub(crate) struct NodeContext {
     pub(crate) range_highlights: Option<Arc<RangeHighlightFrame>>,
     /// The line being scrolled into view, when there is one.
     pub(crate) reveal: Option<RevealRequest>,
+    /// The font size the text view inherits this frame, or zero when not
+    /// resolved; read it through `body_font_size`.
+    pub(crate) body_font_size: Pixels,
 }
 
 impl NodeContext {
@@ -2330,10 +2359,7 @@ impl Paragraph {
 
                     if let Some(mut link_mark) = style.link.clone() {
                         highlight.style.color = Some(node_cx.style.link());
-                        highlight.style.underline = Some(gpui::UnderlineStyle {
-                            thickness: gpui::px(1.),
-                            ..Default::default()
-                        });
+                        highlight.style.underline = Some(link_underline(&node_cx.style));
 
                         // convert link references, replace link
                         if let Some(identifier) = link_mark.identifier.as_ref() {
@@ -2449,10 +2475,7 @@ impl Paragraph {
                                 .clone(),
                         );
                         object_style.color = Some(node_cx.style.link());
-                        object_style.underline = Some(gpui::UnderlineStyle {
-                            thickness: px(1.),
-                            ..Default::default()
-                        });
+                        object_style.underline = Some(link_underline(&node_cx.style));
                     }
                 }
                 let rendered_node = node.clone();
@@ -2518,10 +2541,7 @@ impl Paragraph {
 
                     if let Some(mut link_mark) = style.link.clone() {
                         highlight.style.color = Some(node_cx.style.link());
-                        highlight.style.underline = Some(gpui::UnderlineStyle {
-                            thickness: gpui::px(1.),
-                            ..Default::default()
-                        });
+                        highlight.style.underline = Some(link_underline(&node_cx.style));
 
                         if let Some(identifier) = link_mark.identifier.as_ref()
                             && let Some(mark) = node_cx.link_refs.get(identifier)
@@ -2580,6 +2600,71 @@ fn leaf_element_id(fade_key: Option<TextLeafKey>) -> ElementId {
     fade_key.map_or_else(|| ElementId::from("p"), ElementId::from)
 }
 
+/// A link's underline: a hairline in a translucent link color, so a run of
+/// links reads as text first and as links second.
+fn link_underline(style: &TextViewStyle) -> gpui::UnderlineStyle {
+    gpui::UnderlineStyle {
+        thickness: px(1.),
+        color: Some(style.link().opacity(0.4)),
+        ..Default::default()
+    }
+}
+
+/// The font size the blocks inherit, which heading sizes and the spacing of
+/// lists, tables and rules are proportional to (like CSS `em`), so a compact
+/// 14px view and a 16px document keep the same rhythm.
+///
+/// Resolved once per frame into the context; a context built without it
+/// (as in tests) resolves it from the window.
+fn body_font_size(node_cx: &NodeContext, window: &Window) -> Pixels {
+    if node_cx.body_font_size > Pixels::ZERO {
+        node_cx.body_font_size
+    } else {
+        window.text_style().font_size.to_pixels(window.rem_size())
+    }
+}
+
+/// A heading's `(size scale, line height, section gap)`, the size relative to
+/// the body text and the gap above it relative to the heading itself.
+/// Hierarchy comes from weight rather than size: every level is semibold and
+/// the sizes step down gently from the body.
+fn heading_metrics(level: u8) -> (f32, f32, f32) {
+    match level {
+        1 => (1.8, 1.25, 1.1),
+        2 => (4. / 3., 1.35, 1.6),
+        3 => (17. / 15., 1.35, 1.4),
+        4 => (1., 1.35, 1.4),
+        5 => (14. / 15., 1.35, 1.4),
+        _ => (13. / 15., 1.35, 1.4),
+    }
+}
+
+/// The gap below a heading, relative to the heading's size.
+const HEADING_BOTTOM_GAP: f32 = 0.35;
+
+/// The size a heading renders at, including one a caller's heading
+/// refinement pins, which its gaps follow.
+fn heading_size(level: u8, node_cx: &NodeContext, window: &Window) -> Pixels {
+    node_cx.style.heading(level).text.font_size.map_or_else(
+        || body_font_size(node_cx, window) * heading_metrics(level).0,
+        |size| size.to_pixels(window.rem_size()),
+    )
+}
+
+/// The room above and below a horizontal rule.
+fn rule_space(body_font_size: Pixels) -> Pixels {
+    body_font_size * 1.6
+}
+
+/// The gap below a block: a paragraph gap, unless nothing follows it.
+fn block_gap(options: &NodeRenderOptions, style: &TextViewStyle) -> Rems {
+    if options.in_list || options.is_last {
+        rems(0.)
+    } else {
+        style.paragraph_gap()
+    }
+}
+
 /// `block` with `gap` below it. The box only exists to hold the padding,
 /// so a block with no gap below it is returned as is.
 fn gapped(block: AnyElement, gap: Rems) -> AnyElement {
@@ -2609,7 +2694,7 @@ fn slice_backgrounds(
     slice_ranges(backgrounds, start, end, |range, color| (range, *color))
 }
 
-const CELL_PAD_PX: f32 = 16.0; // px_2 horizontal padding
+const CELL_PAD_PX: f32 = 24.0; // px_3 horizontal padding
 const CELL_MIN_PX: f32 = 48.0;
 const CELL_BORDER_PX: f32 = 1.0; // border_r_1 drawn by every column but the last
 
@@ -2939,6 +3024,7 @@ impl BlockNode {
         checked: Option<bool>,
         style: &TextViewStyle,
         line_height: Pixels,
+        indent: Pixels,
     ) -> Div {
         h_flex()
             .w_full()
@@ -2947,12 +3033,27 @@ impl BlockNode {
             .items_start()
             .content_start()
             .when(!options.todo && checked.is_none(), |this| {
-                this.child(list_item_prefix(
-                    ix,
-                    options.list_start,
-                    options.ordered,
-                    options.depth,
-                ))
+                // The marker hangs in an indent column, right-aligned against
+                // the text like an outside list marker, and steps back in
+                // color so the item text leads.
+                this.child(
+                    div()
+                        .flex_none()
+                        .min_w(indent)
+                        .pr(indent * 0.3)
+                        .text_right()
+                        .text_color(style.muted_foreground())
+                        .child(
+                            list_item_prefix(
+                                ix,
+                                options.list_start,
+                                options.ordered,
+                                options.depth,
+                            )
+                            .trim_end()
+                            .to_string(),
+                        ),
+                )
             })
             .when_some(checked, |this, checked| {
                 // Todo list checkbox
@@ -2964,7 +3065,7 @@ impl BlockNode {
                 this.child(
                     div()
                         .flex()
-                        .mr_1p5()
+                        .mr_2()
                         .h(line_height)
                         .flex_none()
                         .items_center()
@@ -2972,24 +3073,35 @@ impl BlockNode {
                         .child(
                             div()
                                 .flex()
-                                .size(rems(0.875))
+                                .size(rems(0.9375))
                                 .items_center()
                                 .justify_center()
-                                .border_1()
-                                .border_color(style.foreground())
+                                .rounded(px(4.))
+                                .border(px(1.5))
+                                .border_color(style.muted_foreground())
                                 .when(checked, |this| {
-                                    this.bg(style.foreground()).child(
+                                    this.bg(style.link()).border_color(style.link()).child(
                                         img(Arc::new(Image::from_bytes(
                                             ImageFormat::Svg,
                                             check_svg.to_vec(),
                                         )))
-                                        .size(rems(0.625)),
+                                        .size(rems(0.75)),
                                     )
                                 }),
                         ),
                 )
             })
-            .child(div().flex_1().min_w_0().overflow_hidden().child(content))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    // A done task steps back so the open ones stand out.
+                    .when(checked == Some(true), |this| {
+                        this.text_color(style.muted_foreground())
+                    })
+                    .child(content),
+            )
     }
 
     fn render_list_item(
@@ -3006,122 +3118,133 @@ impl BlockNode {
                 spread,
                 checked,
                 ..
-            } => div()
-                .w_full()
-                .min_w_0()
-                .when(*spread, |this| this.child(div()))
-                .children({
-                    let mut items: Vec<Div> = Vec::with_capacity(children.len());
+            } => {
+                let body = body_font_size(node_cx, window);
+                let indent = body * 1.4;
+                div()
+                    .w_full()
+                    .min_w_0()
+                    // Items breathe a little apart, less than paragraphs do.
+                    .when(ix > 0, |this| this.pt(body * 0.25))
+                    .when(*spread, |this| this.child(div()))
+                    .children({
+                        let mut items: Vec<Div> = Vec::with_capacity(children.len());
 
-                    for (child_ix, child) in children.iter().enumerate() {
-                        match child {
-                            BlockNode::Paragraph { .. } => {
-                                let last_not_list = child_ix > 0
-                                    && !matches!(children[child_ix - 1], BlockNode::List { .. });
-
-                                let text = child.render_block(
-                                    NodeRenderOptions {
-                                        depth: options.depth + 1,
-                                        todo: checked.is_some(),
-                                        is_last: true,
-                                        ..options
-                                    },
-                                    node_cx,
-                                    window,
-                                    cx,
-                                );
-
-                                // Continuation paragraph — stack vertically below
-                                // the previous row, indented to align with the text
-                                // column (past bullet/number prefix).
-                                if last_not_list {
-                                    if let Some(preceding_row) = items.pop() {
-                                        items.push(
-                                            div().child(preceding_row).child(
-                                                div()
-                                                    .w_full()
-                                                    .pl(rems(1.))
-                                                    .overflow_hidden()
-                                                    .child(text),
-                                            ),
+                        for (child_ix, child) in children.iter().enumerate() {
+                            match child {
+                                BlockNode::Paragraph { .. } => {
+                                    let last_not_list = child_ix > 0
+                                        && !matches!(
+                                            children[child_ix - 1],
+                                            BlockNode::List { .. }
                                         );
-                                        continue;
+
+                                    let text = child.render_block(
+                                        NodeRenderOptions {
+                                            depth: options.depth + 1,
+                                            todo: checked.is_some(),
+                                            is_last: true,
+                                            ..options
+                                        },
+                                        node_cx,
+                                        window,
+                                        cx,
+                                    );
+
+                                    // Continuation paragraph — stack vertically below
+                                    // the previous row, indented to align with the text
+                                    // column (past bullet/number prefix).
+                                    if last_not_list {
+                                        if let Some(preceding_row) = items.pop() {
+                                            items.push(
+                                                div().child(preceding_row).child(
+                                                    div()
+                                                        .w_full()
+                                                        .pl(indent)
+                                                        .overflow_hidden()
+                                                        .child(text),
+                                                ),
+                                            );
+                                            continue;
+                                        }
                                     }
-                                }
 
-                                items.push(Self::render_list_item_row(
-                                    text,
-                                    ix,
-                                    options,
-                                    *checked,
-                                    &node_cx.style,
-                                    window.line_height(),
-                                ));
-                            }
-                            BlockNode::List { .. } => {
-                                items.push(div().ml(rems(1.)).child(child.render_block(
-                                    NodeRenderOptions {
-                                        depth: options.depth + 1,
-                                        todo: checked.is_some(),
-                                        is_last: true,
-                                        ..options
-                                    },
-                                    node_cx,
-                                    window,
-                                    cx,
-                                )));
-                            }
-                            BlockNode::Root { .. }
-                            | BlockNode::Heading { .. }
-                            | BlockNode::Blockquote { .. }
-                            | BlockNode::CodeBlock(_)
-                            | BlockNode::Custom(_)
-                            | BlockNode::Table(_)
-                            | BlockNode::HorizontalRule { .. } => {
-                                let block = child.render_block(
-                                    NodeRenderOptions {
-                                        depth: options.depth + 1,
-                                        todo: checked.is_some(),
-                                        is_last: true,
-                                        ..options
-                                    },
-                                    node_cx,
-                                    window,
-                                    cx,
-                                );
-
-                                if child_ix == 0 {
                                     items.push(Self::render_list_item_row(
-                                        block,
+                                        text,
                                         ix,
                                         options,
                                         *checked,
                                         &node_cx.style,
                                         window.line_height(),
+                                        indent,
                                     ));
-                                } else {
-                                    // Indent continuation blocks to align with a
-                                    // nested sub-list (`ml(rems(1.))`) and with
-                                    // continuation paragraphs.
-                                    items.push(
-                                        div()
-                                            .w_full()
-                                            .min_w_0()
-                                            .pl(rems(1.))
-                                            .overflow_hidden()
-                                            .child(block),
-                                    );
                                 }
+                                BlockNode::List { .. } => {
+                                    items.push(div().ml(indent).child(child.render_block(
+                                        NodeRenderOptions {
+                                            depth: options.depth + 1,
+                                            todo: checked.is_some(),
+                                            is_last: true,
+                                            ..options
+                                        },
+                                        node_cx,
+                                        window,
+                                        cx,
+                                    )));
+                                }
+                                BlockNode::Root { .. }
+                                | BlockNode::Heading { .. }
+                                | BlockNode::Blockquote { .. }
+                                | BlockNode::CodeBlock(_)
+                                | BlockNode::Custom(_)
+                                | BlockNode::Table(_)
+                                | BlockNode::HorizontalRule { .. } => {
+                                    let block = child.render_block(
+                                        NodeRenderOptions {
+                                            depth: options.depth + 1,
+                                            todo: checked.is_some(),
+                                            is_last: true,
+                                            ..options
+                                        },
+                                        node_cx,
+                                        window,
+                                        cx,
+                                    );
+
+                                    if child_ix == 0 {
+                                        items.push(Self::render_list_item_row(
+                                            block,
+                                            ix,
+                                            options,
+                                            *checked,
+                                            &node_cx.style,
+                                            window.line_height(),
+                                            indent,
+                                        ));
+                                    } else {
+                                        // Indent continuation blocks to align with a
+                                        // nested sub-list (`ml(indent)`) and with
+                                        // continuation paragraphs.
+                                        items.push(
+                                            div()
+                                                .w_full()
+                                                .min_w_0()
+                                                .pl(indent)
+                                                .overflow_hidden()
+                                                .child(block),
+                                        );
+                                    }
+                                }
+                                BlockNode::ListItem { .. }
+                                | BlockNode::Break { .. }
+                                | BlockNode::Definition { .. }
+                                | BlockNode::Unknown => {}
                             }
-                            BlockNode::ListItem { .. }
-                            | BlockNode::Break { .. }
-                            | BlockNode::Definition { .. }
-                            | BlockNode::Unknown => {}
                         }
-                    }
-                    items
-                })
-                .into_any_element(),
+                        items
+                    })
+                    .into_any_element()
+            }
             _ => div().into_any_element(),
         }
     }
@@ -3133,6 +3256,7 @@ impl BlockNode {
         item: &BlockNode,
         options: &NodeRenderOptions,
         node_cx: &NodeContext,
+        text_size: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
@@ -3151,7 +3275,9 @@ impl BlockNode {
                 .map(|row| row.children.len())
                 .max()
                 .unwrap_or(0);
-            return Self::render_scroll_table(table, col_count, options, node_cx, window, cx);
+            return Self::render_scroll_table(
+                table, col_count, options, node_cx, text_size, window, cx,
+            );
         }
 
         // Per-column max text length (in chars), used to proportion the columns
@@ -3166,7 +3292,7 @@ impl BlockNode {
             }
         }
 
-        Self::render_wrap_table(table, &col_lens, options, node_cx, window, cx)
+        Self::render_wrap_table(table, &col_lens, options, node_cx, text_size, window, cx)
     }
 
     /// Horizontally scrollable table layout (opt-in via `style.table`
@@ -3192,6 +3318,7 @@ impl BlockNode {
         col_count: usize,
         options: &NodeRenderOptions,
         node_cx: &NodeContext,
+        text_size: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -3262,8 +3389,8 @@ impl BlockNode {
                         .overflow_hidden()
                         .when(align == ColumnumnAlign::Center, |this| this.text_center())
                         .when(align == ColumnumnAlign::Right, |this| this.text_right())
-                        .px_2()
-                        .py_1()
+                        .px_3()
+                        .py(px(7.))
                         .when(!is_last_col, |this| {
                             this.border_r_1().border_color(style.border())
                         })
@@ -3291,7 +3418,7 @@ impl BlockNode {
         }
 
         div()
-            .pb(rems(1.))
+            .pb(block_gap(options, style))
             .w_full()
             .child(
                 // Scroll viewport owns the visible frame, including any
@@ -3307,6 +3434,7 @@ impl BlockNode {
                     block_element_id("table", table.span, options.ix),
                     &scroll_handle,
                     &StyleRefinement::default()
+                        .text_size(text_size)
                         .bg(style
                             .table_background()
                             .unwrap_or(cx.theme().tokens.colors.surface))
@@ -3343,6 +3471,7 @@ impl BlockNode {
         col_lens: &[usize],
         options: &NodeRenderOptions,
         node_cx: &NodeContext,
+        text_size: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -3374,8 +3503,8 @@ impl BlockNode {
                         .when(align == ColumnumnAlign::Right, |this| this.text_right())
                         .min_w_16()
                         .w(Length::Definite(relative(len as f32)))
-                        .px_2()
-                        .py_1()
+                        .px_3()
+                        .py(px(7.))
                         .when(!is_last_col, |this| {
                             this.border_r_1().border_color(style.border())
                         })
@@ -3404,11 +3533,12 @@ impl BlockNode {
         }
 
         div()
-            .pb(rems(1.))
+            .pb(block_gap(options, style))
             .w_full()
             .child(
                 div()
                     .w_full()
+                    .text_size(text_size)
                     .bg(style
                         .table_background()
                         .unwrap_or(cx.theme().tokens.colors.surface))
@@ -3440,16 +3570,30 @@ impl BlockNode {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let mb = if options.in_list || options.is_last {
-            rems(0.)
-        } else {
-            node_cx.style.paragraph_gap()
-        };
+        let mb = block_gap(&options, &node_cx.style);
 
         match self {
             BlockNode::Root { children, .. } => div()
                 .children(children.into_iter().enumerate().map(move |(ix, node)| {
-                    node.render_block(NodeRenderOptions { ix, ..options }, node_cx, window, cx)
+                    // A nested root (an HTML block container) continues the
+                    // flow around it: until it shows a block of its own, it
+                    // stands where the container stands.
+                    let (is_first, prev) = match flow_position(children, ix) {
+                        (true, _) => (options.is_first, options.prev),
+                        (false, prev) => (false, prev),
+                    };
+                    node.render_block(
+                        NodeRenderOptions {
+                            ix,
+                            is_first,
+                            prev,
+                            is_last: options.is_last && ix + 1 == children.len(),
+                            ..options
+                        },
+                        node_cx,
+                        window,
+                        cx,
+                    )
                 }))
                 .into_any_element(),
             BlockNode::Paragraph(paragraph) => gapped(
@@ -3466,24 +3610,44 @@ impl BlockNode {
                 children,
                 span,
             } => {
-                let (text_size, font_weight) = match level {
-                    1 => (rems(2.), FontWeight::BOLD),
-                    2 => (rems(1.5), FontWeight::SEMIBOLD),
-                    3 => (rems(1.25), FontWeight::SEMIBOLD),
-                    4 => (rems(1.125), FontWeight::SEMIBOLD),
-                    5 => (rems(1.), FontWeight::SEMIBOLD),
-                    6 => (rems(1.), FontWeight::MEDIUM),
-                    _ => (rems(1.), FontWeight::NORMAL),
+                let (_, line_height, section_gap) = heading_metrics(*level);
+                let refinement = node_cx.style.heading(*level);
+                let text_size = heading_size(*level, node_cx, window);
+                // The previous block already leaves a gap below itself, so
+                // only the rest of the section gap is added here -- the two
+                // collapse like CSS margins. A heading right after another one
+                // belongs to the same section and stays close. Nested in a
+                // list item, a heading sits flush with the item.
+                let top = if options.is_first || options.depth > 0 {
+                    px(0.)
+                } else {
+                    match options.prev {
+                        PrevBlock::Heading(_) => text_size * 0.25,
+                        PrevBlock::Rule => (text_size * section_gap
+                            - rule_space(body_font_size(node_cx, window)))
+                        .max(px(0.)),
+                        PrevBlock::Other => (text_size * section_gap
+                            - node_cx.style.paragraph_gap().to_pixels(window.rem_size()))
+                        .max(px(0.)),
+                    }
+                };
+                let bottom = if options.is_last {
+                    px(0.)
+                } else {
+                    text_size * HEADING_BOTTOM_GAP
                 };
 
-                let text_size = text_size.to_pixels(px(14.));
-
                 div()
-                    .pb(rems(0.3))
+                    .pt(top)
+                    .pb(bottom)
                     .whitespace_normal()
                     .text_size(text_size)
-                    .font_weight(font_weight)
-                    .refine_style(&node_cx.style.heading(*level))
+                    .line_height(relative(line_height))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .when(*level >= 6, |this| {
+                        this.text_color(node_cx.style.muted_foreground())
+                    })
+                    .refine_style(&refinement)
                     .child(children.render(
                         span.map(|span| TextLeafKey::block(span.start)),
                         node_cx,
@@ -3496,14 +3660,24 @@ impl BlockNode {
                 div()
                     .w_full()
                     .text_color(node_cx.style.muted_foreground())
-                    .border_l_3()
+                    .border_l_2()
                     .border_color(node_cx.style.border())
-                    .px_4()
+                    .pl(body_font_size(node_cx, window) * 0.9)
                     .children({
                         let children_len = children.len();
                         children.into_iter().enumerate().map(move |(index, c)| {
                             let is_last = index == children_len - 1;
-                            c.render_block(options.is_last(is_last), node_cx, window, cx)
+                            let (is_first, prev) = flow_position(children, index);
+                            c.render_block(
+                                NodeRenderOptions {
+                                    is_first,
+                                    prev,
+                                    ..options.is_last(is_last)
+                                },
+                                node_cx,
+                                window,
+                                cx,
+                            )
                         })
                     })
                     .into_any_element(),
@@ -3555,15 +3729,47 @@ impl BlockNode {
                 div().pb(mb).child(inner).into_any_element()
             }
             BlockNode::Table { .. } => {
-                Self::render_table(self, &options, node_cx, window, cx).into_any_element()
+                // Tables are data and read a step denser than the body. The
+                // columns are measured while rendering, so they are measured
+                // at the same size the cells are laid out with; the actions
+                // row below keeps the body size.
+                let text_size = body_font_size(node_cx, window) * (14. / 15.);
+                window.with_text_style(
+                    Some(TextStyleRefinement {
+                        font_size: Some(text_size.into()),
+                        ..Default::default()
+                    }),
+                    |window| {
+                        Self::render_table(self, &options, node_cx, text_size, window, cx)
+                            .into_any_element()
+                    },
+                )
             }
-            BlockNode::HorizontalRule { .. } => gapped(
+            BlockNode::HorizontalRule { .. } => {
+                // A section break: a hairline with more room around it than
+                // a paragraph gap. The previous block's own gap counts toward
+                // the space above, as with headings.
+                let space = rule_space(body_font_size(node_cx, window));
+                let top = if options.is_first || options.depth > 0 {
+                    px(0.)
+                } else {
+                    let above = match options.prev {
+                        PrevBlock::Rule => space,
+                        PrevBlock::Heading(level) => {
+                            heading_size(level, node_cx, window) * HEADING_BOTTOM_GAP
+                        }
+                        PrevBlock::Other => {
+                            node_cx.style.paragraph_gap().to_pixels(window.rem_size())
+                        }
+                    };
+                    (space - above).max(px(0.))
+                };
                 div()
-                    .bg(node_cx.style.border())
-                    .h(px(2.))
-                    .into_any_element(),
-                mb,
-            ),
+                    .pt(top)
+                    .when(!options.is_last, |this| this.pb(space))
+                    .child(div().bg(node_cx.style.border()).h(px(1.)))
+                    .into_any_element()
+            }
             BlockNode::Break { .. } => div().into_any_element(),
             BlockNode::Unknown { .. } | BlockNode::Definition { .. } => div().into_any_element(),
             _ => {
@@ -3792,7 +3998,7 @@ mod tests {
                     let (widths, shaped) = record_shaped_lines(|| {
                         measure_table_columns(&table, 2, &node_cx, window, cx)
                     });
-                    assert_eq!(widths, vec![40960. + CELL_PAD_PX + CELL_BORDER_PX, 176.]);
+                    assert_eq!(widths, vec![40960. + CELL_PAD_PX + CELL_BORDER_PX, 184.]);
                     assert!(shaped.iter().any(|line| line == &long));
                     assert_eq!(
                         table, uncached,
@@ -3880,15 +4086,15 @@ mod tests {
         in_prepaint(&mut app, move |window, cx| {
             let mut previous = None;
             for (style, rem_size, family, inline_code, expected) in [
-                (base.clone(), 20., MONO, normal_code, [117., 195.]),
-                (base.clone(), 30., MONO, normal_code, [167., 282.5]),
-                (larger, 20., MONO, normal_code, [217., 370.]),
-                (bold, 20., MONO, normal_code, [167., 238.75]),
-                (mono, 20., MONO, normal_code, [217., 195.]),
-                (base.clone(), 20., MONO, normal_code, [117., 195.]),
-                (base.clone(), 20., BODY, normal_code, [117., 107.5]),
-                (base.clone(), 20., MONO, normal_code, [117., 195.]),
-                (base, 20., MONO, bold_code, [117., 238.75]),
+                (base.clone(), 20., MONO, normal_code, [125., 207.]),
+                (base.clone(), 30., MONO, normal_code, [175., 294.5]),
+                (larger, 20., MONO, normal_code, [225., 382.]),
+                (bold, 20., MONO, normal_code, [175., 250.75]),
+                (mono, 20., MONO, normal_code, [225., 207.]),
+                (base.clone(), 20., MONO, normal_code, [125., 207.]),
+                (base.clone(), 20., BODY, normal_code, [125., 119.5]),
+                (base.clone(), 20., MONO, normal_code, [125., 207.]),
+                (base, 20., MONO, bold_code, [125., 250.75]),
             ] {
                 let mut theme = crate::Theme::default();
                 theme.tokens.typography.mono = family.into();
@@ -3934,7 +4140,7 @@ mod tests {
             };
             window.with_text_style(Some(style.subtract(&Default::default())), |window| {
                 let mut previous = None;
-                for (text, expected) in [("longer cell", 126.), ("x", CELL_MIN_PX)] {
+                for (text, expected) in [("longer cell", 134.), ("x", CELL_MIN_PX)] {
                     let source = format!("| h |\n| - |\n| {text} |\n");
                     let document = markdown::parse(&source, &mut node_cx).unwrap();
                     let BlockNode::Table(table) = &document.blocks[0] else {
