@@ -367,3 +367,35 @@ fn table_header_click_sorts_sortable_columns_and_selects_the_rest(cx: &mut TestA
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn table_reports_one_row_and_empty_visible_ranges(cx: &mut TestAppContext) {
+    let (handle, table) = open_ledger(cx, 1, false);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(table.read(cx).delegate().visible_rows.last(), Some(&(0..1)));
+
+        table.update(cx, |table, cx| {
+            table.delegate_mut().rows = 0;
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert_eq!(table.read(cx).delegate().visible_rows.last(), Some(&(0..0)));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn table_visible_range_stops_at_the_last_row_under_stripe_filler(cx: &mut TestAppContext) {
+    let (handle, table) = open_ledger(cx, 3, true);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let reported = table.read(cx).delegate().visible_rows.clone();
+        assert!(!reported.is_empty());
+        assert!(
+            reported.iter().all(|range| range.end <= 3),
+            "reported past the last row: {reported:?}"
+        );
+    })
+    .unwrap();
+}
