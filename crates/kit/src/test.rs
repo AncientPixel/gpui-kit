@@ -27,6 +27,8 @@ pub trait TestWindowExt {
     fn find(&self, id: impl Into<ElementId>) -> ElementSnapshot;
     /// Returns None for an absent target; ambiguous IDs still require a scope.
     fn try_find(&self, id: impl Into<ElementId>) -> Option<ElementSnapshot>;
+    /// Returns every match, top to bottom then left to right; empty when absent.
+    fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot>;
     /// Restricts queries to a GPUI identity scope; no additional layout wrapper is needed.
     fn within(&mut self, id: impl Into<ElementId>) -> ScopedWindow<'_>;
     /// Invalidates cached facts and completes a frame.
@@ -222,6 +224,9 @@ impl TestWindowExt for Window {
     fn try_find(&self, id: impl Into<ElementId>) -> Option<ElementSnapshot> {
         observation::find(self, &[], &id.into())
     }
+    fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot> {
+        observation::find_all(self, &[], &id.into())
+    }
     fn within(&mut self, id: impl Into<ElementId>) -> ScopedWindow<'_> {
         let scope = observation::scope(self, &[], &id.into());
         ScopedWindow {
@@ -349,6 +354,9 @@ impl ScopedWindow<'_> {
     }
     pub fn try_find(&self, id: impl Into<ElementId>) -> Option<ElementSnapshot> {
         observation::find(self.window, &self.scope, &id.into())
+    }
+    pub fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot> {
+        observation::find_all(self.window, &self.scope, &id.into())
     }
     pub fn within(&mut self, id: impl Into<ElementId>) -> ScopedWindow<'_> {
         let scope = observation::scope(self.window, &self.scope, &id.into());

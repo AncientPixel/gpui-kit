@@ -176,6 +176,7 @@ Import `TestWindowExt` and, for custom registration, `TestSupportExt` from
 | --- | --- |
 | `window.find(id)` | Requires a unique observed target; errors list registered paths. |
 | `window.try_find(id)` | Returns `None` when absent; ambiguous IDs still panic. |
+| `window.find_all(id)` | Returns every match, top to bottom then left to right; empty when absent. |
 | `window.within(id)` | Resolves a native GPUI identity scope, including an unobserved ancestor. |
 | `click`, `right_click`, `double_click`, `hover` | Dispatch real pointer events at the target center. |
 | `click_at(id, offset, cx)` | Uses an offset from the target bounds' top-left corner. |
