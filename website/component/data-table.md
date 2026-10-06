@@ -176,6 +176,8 @@ impl TableDelegate for LargeDataDelegate {
 
 ### Sorting Implementation
 
+Clicking the header of a sortable column cycles its sort: descending, ascending, then back to the default order. Clicking the header of a column that is not sortable selects the column.
+
 Implement sorting in your delegate:
 
 ```rust

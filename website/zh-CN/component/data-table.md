@@ -152,6 +152,8 @@ impl TableDelegate for LargeDataDelegate {
 
 ## 排序
 
+点击可排序列的表头会依次切换排序：降序、升序，然后恢复默认顺序。点击不可排序列的表头会选中该列。
+
 排序逻辑需要由你的 `TableDelegate` 实现：
 
 ```rust

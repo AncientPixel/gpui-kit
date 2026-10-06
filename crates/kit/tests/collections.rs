@@ -1,7 +1,9 @@
 mod common;
+use std::ops::Range;
+
 use gpui_kit::component::{
     list::ListItem,
-    table::{Column, DataTable, TableDelegate, TableSelection, TableState},
+    table::{Column, ColumnSort, DataTable, TableDelegate, TableSelection, TableState},
     tree::{Tree, TreeItem, TreeState},
 };
 use gpui_kit::test::TestWindowExt;
@@ -253,6 +255,115 @@ fn table_keyboard_leaves_rows_unselected_when_rows_are_not_selectable(cx: &mut T
             assert_eq!(window.find(("row", 0usize)).selected(), Some(false));
         }
         assert!(window.find(("row", 0usize)).visible());
+    })
+    .unwrap();
+}
+
+/// A table whose first column sorts and whose second does not, recording what
+/// the table reports back to its delegate.
+struct Ledger {
+    rows: usize,
+    sorts: Vec<(usize, ColumnSort)>,
+    visible_rows: Vec<Range<usize>>,
+}
+impl Ledger {
+    fn new(rows: usize) -> Self {
+        Self {
+            rows,
+            sorts: Vec::new(),
+            visible_rows: Vec::new(),
+        }
+    }
+}
+impl TableDelegate for Ledger {
+    fn columns_count(&self, _: &App) -> usize {
+        2
+    }
+    fn rows_count(&self, _: &App) -> usize {
+        self.rows
+    }
+    fn column(&self, ix: usize, _: &App) -> Column {
+        let column = Column::new(format!("column-{ix}"), format!("Column {ix}")).width(px(180.));
+        if ix == 0 { column.sortable() } else { column }
+    }
+    fn render_td(
+        &mut self,
+        row: usize,
+        col: usize,
+        _: &mut Window,
+        _: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        div().child(format!("{row}:{col}"))
+    }
+    fn perform_sort(
+        &mut self,
+        col_ix: usize,
+        sort: ColumnSort,
+        _: &mut Window,
+        _: &mut Context<TableState<Self>>,
+    ) {
+        self.sorts.push((col_ix, sort));
+    }
+    fn visible_rows_changed(
+        &mut self,
+        visible_range: Range<usize>,
+        _: &mut Window,
+        _: &mut Context<TableState<Self>>,
+    ) {
+        self.visible_rows.push(visible_range);
+    }
+}
+struct LedgerView {
+    table: Entity<TableState<Ledger>>,
+    stripe: bool,
+}
+impl Render for LedgerView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .child(DataTable::new(&self.table).stripe(self.stripe))
+    }
+}
+fn open_ledger(
+    cx: &mut TestAppContext,
+    rows: usize,
+    stripe: bool,
+) -> (gpui_kit::AnyWindowHandle, Entity<TableState<Ledger>>) {
+    cx.update(gpui_kit::init);
+    let (handle, content) =
+        common::open_window(cx, Some(size(px(640.), px(320.))), |window, cx| {
+            cx.new(|cx| LedgerView {
+                table: cx.new(|cx| TableState::new(Ledger::new(rows), window, cx)),
+                stripe,
+            })
+        });
+    let table = cx
+        .update_window(handle.into(), |_, _, cx| content.read(cx).table.clone())
+        .unwrap();
+    (handle.into(), table)
+}
+
+#[gpui_kit::test]
+fn table_header_click_sorts_sortable_columns_and_selects_the_rest(cx: &mut TestAppContext) {
+    let (handle, table) = open_ledger(cx, 3, false);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        for _ in 0..3 {
+            window.click(("col-header", 0usize), cx);
+        }
+        assert_eq!(
+            table.read(cx).delegate().sorts,
+            vec![
+                (0, ColumnSort::Descending),
+                (0, ColumnSort::Ascending),
+                (0, ColumnSort::Default),
+            ]
+        );
+        assert_eq!(table.read(cx).selected_col(), None);
+
+        window.click(("col-header", 1usize), cx);
+        assert_eq!(table.read(cx).selected_col(), Some(1));
+        assert_eq!(table.read(cx).delegate().sorts.len(), 3);
     })
     .unwrap();
 }
