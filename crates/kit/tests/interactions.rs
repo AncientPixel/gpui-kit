@@ -1,8 +1,8 @@
 mod common;
 use gpui_kit::test::{TestAppContextExt, TestSupportExt, TestWindowExt};
 use gpui_kit::{
-    AppContext, Context, MouseButton, ScrollDelta, ScrollHandle, TestAppContext, Window, div,
-    point, prelude::*, px, size,
+    AppContext, Context, Modifiers, MouseButton, ScrollDelta, ScrollHandle, TestAppContext, Window,
+    div, point, prelude::*, px, size,
 };
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
@@ -106,6 +106,70 @@ fn hover_right_click_and_double_click_dispatch_native_pointer_events(cx: &mut Te
     assert!(events.iter().any(|event| event == "hover"));
     assert!(events.iter().any(|event| event == "right"));
     assert!(events.windows(2).any(|pair| pair == ["left:1", "left:2"]));
+}
+
+struct ModifiedClick {
+    events: Rc<RefCell<Vec<(&'static str, Modifiers)>>>,
+}
+impl Render for ModifiedClick {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().id("panel").child({
+            let moved = self.events.clone();
+            let down = self.events.clone();
+            let up = self.events.clone();
+            let click = self.events.clone();
+            div()
+                .id("surface")
+                .test_support()
+                .size(px(80.))
+                .on_mouse_move(move |event, _, _| {
+                    moved.borrow_mut().push(("move", event.modifiers))
+                })
+                .on_mouse_down(MouseButton::Left, move |event, _, _| {
+                    down.borrow_mut().push(("down", event.modifiers))
+                })
+                .on_mouse_up(MouseButton::Left, move |event, _, _| {
+                    up.borrow_mut().push(("up", event.modifiers))
+                })
+                .on_click(move |event, _, _| click.borrow_mut().push(("click", event.modifiers())))
+        })
+    }
+}
+#[gpui_kit::test]
+fn modified_clicks_carry_modifiers_on_every_pointer_event(cx: &mut TestAppContext) {
+    let events = Rc::new(RefCell::new(vec![]));
+    let (handle, _) = common::open_window(cx, None, |_, cx| {
+        cx.new(|_| ModifiedClick {
+            events: events.clone(),
+        })
+    });
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.click_with_modifiers("surface", Modifiers::secondary_key(), cx);
+    })
+    .unwrap();
+    let recorded = std::mem::take(&mut *events.borrow_mut());
+    for kind in ["move", "down", "up", "click"] {
+        assert!(
+            recorded
+                .iter()
+                .any(|(event, modifiers)| *event == kind && modifiers.secondary()),
+            "{kind} did not carry the secondary modifier: {recorded:?}"
+        );
+    }
+
+    cx.update_window(handle.into(), |_, window, cx| {
+        window
+            .within("panel")
+            .click_with_modifiers("surface", Modifiers::shift(), cx);
+    })
+    .unwrap();
+    let recorded = events.borrow();
+    assert!(
+        recorded
+            .iter()
+            .any(|(event, modifiers)| *event == "click" && *modifiers == Modifiers::shift()),
+        "scoped click did not carry shift: {recorded:?}"
+    );
 }
 
 struct Scrolling {

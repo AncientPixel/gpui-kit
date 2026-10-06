@@ -12,8 +12,8 @@
 //! external changes, or use [`TestAppContextExt::wait_for`] for asynchronous UI.
 use crate::{
     AnyWindowHandle, App, AppContext, ElementId, InputEvent, KeyDownEvent, KeyUpEvent, Keystroke,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
-    ScrollWheelEvent, TestAppContext, Window, point, px,
+    Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    ScrollDelta, ScrollWheelEvent, TestAppContext, Window, point, px,
 };
 use std::time::Duration;
 
@@ -34,6 +34,14 @@ pub trait TestWindowExt {
     fn click(&mut self, id: impl Into<ElementId>, cx: &mut App);
     /// Clicks at a local offset from the target's top-left corner.
     fn click_at(&mut self, id: impl Into<ElementId>, offset: Point<Pixels>, cx: &mut App);
+    /// Left-clicks while holding modifiers, such as `Modifiers::secondary_key()`.
+    /// The pointer move, mouse-down and mouse-up events all carry them.
+    fn click_with_modifiers(
+        &mut self,
+        id: impl Into<ElementId>,
+        modifiers: Modifiers,
+        cx: &mut App,
+    );
     fn right_click(&mut self, id: impl Into<ElementId>, cx: &mut App);
     fn double_click(&mut self, id: impl Into<ElementId>, cx: &mut App);
     fn hover(&mut self, id: impl Into<ElementId>, cx: &mut App);
@@ -88,13 +96,14 @@ fn move_pointer(
     window: &mut Window,
     position: Point<Pixels>,
     pressed_button: Option<MouseButton>,
+    modifiers: Modifiers,
     cx: &mut App,
 ) {
     window.dispatch_event(
         MouseMoveEvent {
             position,
             pressed_button,
-            modifiers: Default::default(),
+            modifiers,
         }
         .to_platform_input(),
         cx,
@@ -107,13 +116,14 @@ fn mouse_down(
     position: Point<Pixels>,
     button: MouseButton,
     click_count: usize,
+    modifiers: Modifiers,
     cx: &mut App,
 ) {
     window.dispatch_event(
         MouseDownEvent {
             button,
             position,
-            modifiers: Default::default(),
+            modifiers,
             click_count,
             first_mouse: false,
         }
@@ -128,13 +138,14 @@ fn mouse_up(
     position: Point<Pixels>,
     button: MouseButton,
     click_count: usize,
+    modifiers: Modifiers,
     cx: &mut App,
 ) {
     window.dispatch_event(
         MouseUpEvent {
             button,
             position,
-            modifiers: Default::default(),
+            modifiers,
             click_count,
         }
         .to_platform_input(),
@@ -143,6 +154,7 @@ fn mouse_up(
     window.render_frame(cx);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn click_target(
     window: &mut Window,
     scope: &[ElementId],
@@ -150,21 +162,22 @@ fn click_target(
     offset: Option<Point<Pixels>>,
     button: MouseButton,
     count: usize,
+    modifiers: Modifiers,
     cx: &mut App,
 ) {
     window.render_frame(cx);
     let position = target_position(window, scope, &id, offset);
-    move_pointer(window, position, None, cx);
+    move_pointer(window, position, None, modifiers, cx);
     for click_count in 1..=count {
-        mouse_down(window, position, button, click_count, cx);
-        mouse_up(window, position, button, click_count, cx);
+        mouse_down(window, position, button, click_count, modifiers, cx);
+        mouse_up(window, position, button, click_count, modifiers, cx);
     }
 }
 
 fn hover_target(window: &mut Window, scope: &[ElementId], id: ElementId, cx: &mut App) {
     window.render_frame(cx);
     let position = target_position(window, scope, &id, None);
-    move_pointer(window, position, None, cx);
+    move_pointer(window, position, None, Modifiers::default(), cx);
 }
 
 fn scroll_target(
@@ -176,7 +189,7 @@ fn scroll_target(
 ) {
     window.render_frame(cx);
     let position = target_position(window, scope, &id, None);
-    move_pointer(window, position, None, cx);
+    move_pointer(window, position, None, Modifiers::default(), cx);
     window.dispatch_event(
         ScrollWheelEvent {
             position,
@@ -221,16 +234,69 @@ impl TestWindowExt for Window {
         self.draw(cx).clear(cx);
     }
     fn click(&mut self, id: impl Into<ElementId>, cx: &mut App) {
-        click_target(self, &[], id.into(), None, MouseButton::Left, 1, cx);
+        click_target(
+            self,
+            &[],
+            id.into(),
+            None,
+            MouseButton::Left,
+            1,
+            Modifiers::default(),
+            cx,
+        );
     }
     fn click_at(&mut self, id: impl Into<ElementId>, offset: Point<Pixels>, cx: &mut App) {
-        click_target(self, &[], id.into(), Some(offset), MouseButton::Left, 1, cx);
+        click_target(
+            self,
+            &[],
+            id.into(),
+            Some(offset),
+            MouseButton::Left,
+            1,
+            Modifiers::default(),
+            cx,
+        );
+    }
+    fn click_with_modifiers(
+        &mut self,
+        id: impl Into<ElementId>,
+        modifiers: Modifiers,
+        cx: &mut App,
+    ) {
+        click_target(
+            self,
+            &[],
+            id.into(),
+            None,
+            MouseButton::Left,
+            1,
+            modifiers,
+            cx,
+        );
     }
     fn right_click(&mut self, id: impl Into<ElementId>, cx: &mut App) {
-        click_target(self, &[], id.into(), None, MouseButton::Right, 1, cx);
+        click_target(
+            self,
+            &[],
+            id.into(),
+            None,
+            MouseButton::Right,
+            1,
+            Modifiers::default(),
+            cx,
+        );
     }
     fn double_click(&mut self, id: impl Into<ElementId>, cx: &mut App) {
-        click_target(self, &[], id.into(), None, MouseButton::Left, 2, cx);
+        click_target(
+            self,
+            &[],
+            id.into(),
+            None,
+            MouseButton::Left,
+            2,
+            Modifiers::default(),
+            cx,
+        );
     }
     fn hover(&mut self, id: impl Into<ElementId>, cx: &mut App) {
         hover_target(self, &[], id.into(), cx);
@@ -243,8 +309,8 @@ impl TestWindowExt for Window {
     }
     fn drag(&mut self, from: Point<Pixels>, to: Point<Pixels>, cx: &mut App) {
         self.render_frame(cx);
-        move_pointer(self, from, None, cx);
-        mouse_down(self, from, MouseButton::Left, 1, cx);
+        move_pointer(self, from, None, Modifiers::default(), cx);
+        mouse_down(self, from, MouseButton::Left, 1, Modifiers::default(), cx);
         for step in 1..=8 {
             let fraction = step as f32 / 8.;
             move_pointer(
@@ -254,10 +320,11 @@ impl TestWindowExt for Window {
                     from.y + (to.y - from.y) * fraction,
                 ),
                 Some(MouseButton::Left),
+                Modifiers::default(),
                 cx,
             );
         }
-        mouse_up(self, to, MouseButton::Left, 1, cx);
+        mouse_up(self, to, MouseButton::Left, 1, Modifiers::default(), cx);
     }
     fn press(&mut self, key: &str, cx: &mut App) {
         let key =
@@ -298,6 +365,7 @@ impl ScopedWindow<'_> {
             None,
             MouseButton::Left,
             1,
+            Modifiers::default(),
             cx,
         );
     }
@@ -309,6 +377,24 @@ impl ScopedWindow<'_> {
             Some(offset),
             MouseButton::Left,
             1,
+            Modifiers::default(),
+            cx,
+        );
+    }
+    pub fn click_with_modifiers(
+        &mut self,
+        id: impl Into<ElementId>,
+        modifiers: Modifiers,
+        cx: &mut App,
+    ) {
+        click_target(
+            self.window,
+            &self.scope,
+            id.into(),
+            None,
+            MouseButton::Left,
+            1,
+            modifiers,
             cx,
         );
     }
@@ -320,6 +406,7 @@ impl ScopedWindow<'_> {
             None,
             MouseButton::Right,
             1,
+            Modifiers::default(),
             cx,
         );
     }
@@ -331,6 +418,7 @@ impl ScopedWindow<'_> {
             None,
             MouseButton::Left,
             2,
+            Modifiers::default(),
             cx,
         );
     }

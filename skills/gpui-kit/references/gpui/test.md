@@ -179,6 +179,7 @@ Import `TestWindowExt` and, for custom registration, `TestSupportExt` from
 | `window.within(id)` | Resolves a native GPUI identity scope, including an unobserved ancestor. |
 | `click`, `right_click`, `double_click`, `hover` | Dispatch real pointer events at the target center. |
 | `click_at(id, offset, cx)` | Uses an offset from the target bounds' top-left corner. |
+| `click_with_modifiers(id, modifiers, cx)` | Left-clicks while holding modifiers, e.g. `Modifiers::secondary_key()`. |
 | `scroll(id, delta, cx)` | Dispatches a GPUI `ScrollDelta` wheel event. |
 | `drag_to(from_id, to_id, cx)` | Drags between target centers within the current scope. |
 | `window.drag(from, to, cx)` | Drags between window-local points; use `bounds()` for precise or cross-scope geometry. |

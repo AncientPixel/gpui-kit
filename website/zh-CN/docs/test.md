@@ -190,6 +190,7 @@ assert!(save.visible());
 | `window.try_find(id)` | 缺失时返回 `None`，歧义仍会 panic。 |
 | `window.click(id, cx)` | 在中心发送原生鼠标移动、按下与释放。 |
 | `window.click_at(id, offset, cx)` | 相对于目标左上角的像素偏移点击，适合部分裁剪。 |
+| `window.click_with_modifiers(id, modifiers, cx)` | 按住修饰键左键点击，例如 `Modifiers::secondary_key()`；移动、按下与释放事件都会携带这些修饰键。 |
 | `window.right_click(id, cx)` / `double_click(id, cx)` | 原生右键或两次点击序列。 |
 | `window.hover(id, cx)` | 移动指针，不按键。 |
 | `window.scroll(id, delta, cx)` | 原生滚轮事件，`ScrollDelta` 保留 GPUI 的方向与单位。 |
@@ -198,8 +199,8 @@ assert!(save.visible());
 | `window.press("backspace", cx)` | 使用 GPUI 按键解析器，为特殊键或快捷键发送原生 key-down/key-up 事件。 |
 | `window.input(text, cx)` | 向当前焦点逐字符输入，不自动聚焦或替换整个值。 |
 
-作用域支持 `find`、`try_find`、嵌套 `within`、`click`、`click_at`、`right_click`、
-`double_click`、`hover`、`scroll`、`drag_to`、`press` 和 `input`。
+作用域支持 `find`、`try_find`、嵌套 `within`、`click`、`click_at`、`click_with_modifiers`、
+`right_click`、`double_click`、`hover`、`scroll`、`drag_to`、`press` 和 `input`。
 `drag_to` 的两个 ID 都在当前作用域中解析。跨作用域拖拽或指定偏移时，可查询目标后
 将窗口坐标传给 `window.drag`。
 

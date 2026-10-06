@@ -228,6 +228,7 @@ Import `gpui_kit::test::TestWindowExt` for the following methods:
 | `window.try_find(id)` | Returns `None` when absent; ambiguity still panics. |
 | `window.click(id, cx)` | Native mouse move/down/up at the target center. |
 | `window.click_at(id, offset, cx)` | Click at a pixel offset from the target's top-left corner, useful for partial clipping. |
+| `window.click_with_modifiers(id, modifiers, cx)` | Left click while holding modifiers, such as `Modifiers::secondary_key()`; the move, down and up events all carry them. |
 | `window.right_click(id, cx)` / `double_click(id, cx)` | Native right-button or two-click sequences. |
 | `window.hover(id, cx)` | Move the pointer without pressing a button. |
 | `window.scroll(id, delta, cx)` | Native wheel event; `ScrollDelta` retains GPUI units and sign. |
@@ -237,7 +238,8 @@ Import `gpui_kit::test::TestWindowExt` for the following methods:
 | `window.input(text, cx)` | Per-character text input to the current focus; does not focus or replace the whole value. |
 
 Scoped queries support `find`, `try_find`, nested `within`, `click`, `click_at`,
-`right_click`, `double_click`, `hover`, `scroll`, `drag_to`, `press` and `input`.
+`click_with_modifiers`, `right_click`, `double_click`, `hover`, `scroll`, `drag_to`,
+`press` and `input`.
 `drag_to` resolves both IDs within the scope. For cross-scope drags or custom offsets,
 query the targets and pass window-local points to `window.drag`.
 
