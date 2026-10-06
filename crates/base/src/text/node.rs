@@ -1,29 +1,30 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     ops::Range,
     sync::{Arc, Mutex, OnceLock, Weak},
 };
 
 use gpui::{
-    AnyElement, App, Axis, DefiniteLength, Div, ElementId, FontStyle, FontWeight, HighlightStyle,
-    Hsla, Image, ImageFormat, ImageSource, InteractiveElement as _, IntoElement, IsZero as _,
-    Length, ObjectFit, Overflow, ParentElement, Pixels, Rems, ScrollHandle, SharedString,
-    SharedUri, StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _,
-    TextStyleRefinement, WhiteSpace, Window, div, img, prelude::FluentBuilder as _, px, relative,
-    rems,
+    AnyElement, App, Axis, Bounds, DefiniteLength, Div, Element, ElementId, FontStyle, FontWeight,
+    GlobalElementId, HighlightStyle, Hsla, Image, ImageFormat, ImageSource, InspectorElementId,
+    InteractiveElement as _, IntoElement, IsZero as _, LayoutId, Length, ObjectFit, Overflow,
+    ParentElement, Pixels, Point, Rems, ScrollHandle, SharedString, SharedUri,
+    StatefulInteractiveElement, StyleRefinement, Styled, StyledImage as _, TextStyleRefinement,
+    WhiteSpace, Window, div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use markdown::mdast;
 
 use crate::{
-    ScrollableMask, Scrollbar, StyledExt, h_flex,
+    GlobalState, ScrollableMask, Scrollbar, StyledExt, h_flex,
     scrollable_mask::horizontal_scroll_area,
     text::{
         CodeBlockActionsFn, CodeBlockHighlighterFn, LinkClickHandlerFn, MarkdownExtensions,
         MarkdownNode, TableActionsFn,
         document::{NodeRenderOptions, PrevBlock, flow_position},
         inline::{
-            Inline, InlineHighlight, InlineState, combine_highlights, fade_highlights, text_runs,
-            text_size_ranges,
+            Inline, InlineHighlight, InlineState, combine_highlights, fade_highlights,
+            point_in_text_selection, text_runs, text_size_ranges,
         },
         inline_flow::{InlineFlow, InlineFlowItem, slice_ranges},
         range_highlight::{RangeHighlightFrame, RevealAt, RevealRequest},
@@ -76,7 +77,10 @@ pub(crate) enum BlockNode {
     },
     CodeBlock(CodeBlock),
     /// A custom Markdown node produced by [`MarkdownExtensions`].
-    Custom(MarkdownNode),
+    Custom {
+        node: MarkdownNode,
+        state: BlockState,
+    },
     Table(Table),
     Break {
         html: bool,
@@ -93,6 +97,173 @@ pub(crate) enum BlockNode {
         span: Option<Span>,
     },
     Unknown,
+}
+
+/// Retained block interaction state, shared with its rendered element.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BlockState {
+    // None is unobserved, allowing virtualized copy to include enclosed blocks.
+    selection: Arc<Mutex<Option<BlockSelection>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockSelection {
+    Empty,
+    Full,
+}
+
+impl BlockState {
+    fn selection(&self) -> Option<BlockSelection> {
+        self.selection.lock().ok().and_then(|selection| *selection)
+    }
+
+    fn set_selection(&self, value: Option<BlockSelection>) {
+        if let Ok(mut selection) = self.selection.lock() {
+            *selection = value;
+        }
+    }
+
+    fn is_selected(&self) -> bool {
+        self.selection() == Some(BlockSelection::Full)
+    }
+
+    fn has_selection_observation(&self) -> bool {
+        self.selection().is_some()
+    }
+
+    fn clear_selection(&self) {
+        self.set_selection(None);
+    }
+}
+
+impl PartialEq for BlockState {
+    fn eq(&self, _: &Self) -> bool {
+        // Runtime selection does not change parsed document identity.
+        true
+    }
+}
+
+/// Observe the plugin's own bounds without changing its layout or listeners.
+struct CustomBlockElement {
+    content: AnyElement,
+    state: BlockState,
+}
+
+impl IntoElement for CustomBlockElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for CustomBlockElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.content.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let view = GlobalState::global(cx).text_view_state().cloned();
+        let selection = view.as_ref().and_then(|view| {
+            let state = view.read(cx);
+            if !state.is_selectable() {
+                return None;
+            }
+            if state.is_all_selected() {
+                return Some(BlockSelection::Full);
+            }
+            if state.preserve_inline_selection {
+                return self.state.selection();
+            }
+            let (start, end) = state.selection_points(cx)?;
+            // Selection uses the full content bounds, not the visible clip or
+            // the paragraph gap outside this element.
+            if bounds.size.width <= Pixels::ZERO
+                || bounds.size.height <= Pixels::ZERO
+                || bounds.bottom() <= start.y.min(end.y)
+                || bounds.top() > start.y.max(end.y)
+            {
+                return None;
+            }
+            Some(if custom_block_is_selected(bounds, start, end) {
+                BlockSelection::Full
+            } else {
+                BlockSelection::Empty
+            })
+        });
+        self.state.set_selection(selection);
+        if let Some(view) = &view {
+            let visible = bounds.intersect(&window.content_mask().bounds);
+            if view.read(cx).is_selectable()
+                && visible.size.width > Pixels::ZERO
+                && visible.size.height > Pixels::ZERO
+            {
+                view.update(cx, |state, _| {
+                    state.selection_adapter.register_inline(vec![visible]);
+                });
+            }
+        }
+        self.content.paint(window, cx);
+        if selection == Some(BlockSelection::Full) {
+            let color = view.as_ref().unwrap().read(cx).text_view_style.selection();
+            window.paint_quad(gpui::fill(bounds, color));
+        }
+    }
+}
+
+fn custom_block_is_selected(
+    bounds: Bounds<Pixels>,
+    start: Point<Pixels>,
+    end: Point<Pixels>,
+) -> bool {
+    start != end
+        && (bounds.contains(&start)
+            || bounds.contains(&end)
+            || point_in_text_selection(
+                bounds.origin,
+                bounds.size.width,
+                start,
+                end,
+                bounds.size.height,
+            ))
 }
 
 #[derive(Clone, Copy)]
@@ -127,7 +298,7 @@ impl BlockNode {
             BlockNode::List { span, .. } => *span,
             BlockNode::ListItem { span, .. } => *span,
             BlockNode::CodeBlock(code_block) => code_block.span,
-            BlockNode::Custom(el) => el.span,
+            BlockNode::Custom { node, .. } => node.span,
             BlockNode::Table(table) => table.span,
             BlockNode::Break { span, .. } => *span,
             BlockNode::HorizontalRule { span, .. } => *span,
@@ -172,8 +343,14 @@ impl BlockNode {
                 }
             }
             BlockNode::CodeBlock(code_block) => selected = code_block.selected_source_range(),
-            BlockNode::Custom(_)
-            | BlockNode::Definition { .. }
+            BlockNode::Custom { node, state } => {
+                if state.is_selected() {
+                    selected = node
+                        .source_range()
+                        .map_or(SourceRangeSelection::Unmapped, SourceRangeSelection::Mapped);
+                }
+            }
+            BlockNode::Definition { .. }
             | BlockNode::Break { .. }
             | BlockNode::HorizontalRule { .. }
             | BlockNode::Unknown => {}
@@ -305,11 +482,14 @@ impl BlockNode {
                     text.push('\n');
                 }
             }
-            BlockNode::Custom(node) => {
-                if let BlockTextKind::All = kind {
-                    let content = node.as_text();
+            BlockNode::Custom { node, state } => {
+                if matches!(kind, BlockTextKind::All) || state.is_selected() {
+                    let content = match kind {
+                        BlockTextKind::SelectedSource => Cow::Owned(node.to_markdown()),
+                        _ => Cow::Borrowed(node.as_text()),
+                    };
                     if !content.is_empty() {
-                        text.push_str(content);
+                        text.push_str(&content);
                         text.push('\n');
                     }
                 }
@@ -358,8 +538,11 @@ impl BlockNode {
                     .any(|cell| cell.children.has_selection())
             }),
             BlockNode::CodeBlock(code_block) => code_block.has_selection(),
-            BlockNode::Custom { .. }
-            | BlockNode::Definition { .. }
+            BlockNode::Custom { state, .. } => {
+                // An observed empty endpoint must suppress virtualized copy fallback.
+                state.has_selection_observation()
+            }
+            BlockNode::Definition { .. }
             | BlockNode::Break { .. }
             | BlockNode::HorizontalRule { .. }
             | BlockNode::Unknown { .. } => false,
@@ -386,8 +569,10 @@ impl BlockNode {
                 }
             }
             BlockNode::CodeBlock(code_block) => code_block.clear_selection(),
-            BlockNode::Custom { .. }
-            | BlockNode::Definition { .. }
+            BlockNode::Custom { state, .. } => {
+                state.clear_selection();
+            }
+            BlockNode::Definition { .. }
             | BlockNode::Break { .. }
             | BlockNode::HorizontalRule { .. }
             | BlockNode::Unknown { .. } => {}
@@ -2996,7 +3181,7 @@ impl BlockNode {
                 }
             }
             BlockNode::HorizontalRule { .. } => "---".to_string(),
-            BlockNode::Custom(node) => node.to_markdown(),
+            BlockNode::Custom { node, .. } => node.to_markdown(),
             BlockNode::Definition {
                 identifier,
                 url,
@@ -3196,7 +3381,7 @@ impl BlockNode {
                                 | BlockNode::Heading { .. }
                                 | BlockNode::Blockquote { .. }
                                 | BlockNode::CodeBlock(_)
-                                | BlockNode::Custom(_)
+                                | BlockNode::Custom { .. }
                                 | BlockNode::Table(_)
                                 | BlockNode::HorizontalRule { .. } => {
                                     let block = child.render_block(
@@ -3720,13 +3905,19 @@ impl BlockNode {
                 })
                 .into_any_element(),
             BlockNode::CodeBlock(code_block) => code_block.render(&options, node_cx, window, cx),
-            BlockNode::Custom(node) => {
+            BlockNode::Custom { node, state } => {
                 let inner = match node_cx.markdown_extensions.render_block(node, window, cx) {
                     Some(rendered) => rendered,
                     None => div().child(node.as_text().to_string()).into_any_element(),
                 };
 
-                div().pb(mb).child(inner).into_any_element()
+                div()
+                    .pb(mb)
+                    .child(CustomBlockElement {
+                        content: inner,
+                        state: state.clone(),
+                    })
+                    .into_any_element()
             }
             BlockNode::Table { .. } => {
                 // Tables are data and read a step denser than the body. The
@@ -3786,6 +3977,105 @@ impl BlockNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_plugin_selection_copies_both_formats_and_clears_synchronously() {
+        let source = "$$\nx\n$$";
+        let mut node = MarkdownNode::new("math", ()).text("x").markdown(source);
+        node.set_span(Some(Span {
+            start: 0,
+            end: source.len(),
+        }));
+        let state = BlockState::default();
+        let same_content = BlockNode::Custom {
+            node: node.clone(),
+            state: BlockState::default(),
+        };
+        let block = BlockNode::Custom {
+            node,
+            state: state.clone(),
+        };
+        let document = crate::text::document::ParsedDocument {
+            source: source.into(),
+            blocks: Arc::new(vec![block.clone()]),
+        };
+        assert!(!block.has_selection());
+        state.set_selection(Some(BlockSelection::Full));
+        // Runtime selection does not affect parsed content equality.
+        assert_eq!(block, same_content);
+        for blocks in [None, Some(0..=0)] {
+            assert_eq!(
+                document.selected_text(SelectionFormat::Plain, blocks.clone()),
+                "x\n"
+            );
+            assert_eq!(
+                document.selected_text(SelectionFormat::Source, blocks),
+                source
+            );
+        }
+        assert_eq!(document.selected_source_range(), Some(0..source.len()));
+
+        // A clone shares the retained state, including clearing before repaint.
+        block.clear_selection();
+        assert!(!document.blocks[0].has_selection());
+        assert_eq!(
+            document.selected_text(SelectionFormat::Plain, Some(0..=0)),
+            ""
+        );
+        assert_eq!(document.selected_source_range(), None);
+    }
+
+    #[test]
+    fn block_plugin_empty_endpoint_suppresses_virtualized_copy_fallback() {
+        let state = BlockState::default();
+        let block = BlockNode::Custom {
+            node: MarkdownNode::new("math", ())
+                .text("formula")
+                .markdown("$$formula$$"),
+            state: state.clone(),
+        };
+        let after = CodeBlock::from_code("after", None::<SharedString>);
+        after.set_selection(0..5);
+        let document = crate::text::document::ParsedDocument {
+            blocks: Arc::new(vec![block, BlockNode::CodeBlock(after)]),
+            ..Default::default()
+        };
+        assert!(
+            document
+                .selected_text(SelectionFormat::Plain, Some(0..=1))
+                .contains("formula")
+        );
+        state.set_selection(Some(BlockSelection::Empty));
+        assert!(document.blocks[0].has_selection());
+        for format in [SelectionFormat::Plain, SelectionFormat::Source] {
+            let text = document.selected_text(format, Some(0..=1));
+            assert!(text.contains("after"));
+            assert!(!text.contains("formula"));
+        }
+    }
+
+    #[test]
+    fn block_plugin_geometry_selects_whole_blocks_in_both_drag_directions() {
+        let bounds = Bounds::new(gpui::point(px(10.), px(20.)), gpui::size(px(100.), px(40.)));
+        let inside = bounds.center();
+        let above = gpui::point(px(0.), px(0.));
+        let below = gpui::point(px(0.), px(80.));
+        for (start, end) in [
+            (above, inside),
+            (inside, below),
+            (above, below),
+            (inside, inside + gpui::point(px(1.), px(0.))),
+        ] {
+            assert!(custom_block_is_selected(bounds, start, end));
+            assert!(custom_block_is_selected(bounds, end, start));
+        }
+        assert!(!custom_block_is_selected(bounds, inside, inside));
+        assert!(!custom_block_is_selected(
+            bounds,
+            gpui::point(px(150.), px(30.)),
+            gpui::point(px(160.), px(40.))
+        ));
+    }
 
     #[test]
     fn selected_inline_objects_coalesce_surrounding_emphasis() {
