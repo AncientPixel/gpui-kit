@@ -1,7 +1,5 @@
 mod common;
-use gpui_kit::test::{
-    ClickOptions, TestAppContextExt, TestSupportExt, TestWindowClickExt, TestWindowExt,
-};
+use gpui_kit::test::{ClickOptions, TestAppContextExt, TestSupportExt, TestWindowExt};
 use gpui_kit::{
     AppContext, Context, FocusHandle, InputEvent, Modifiers, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, ScrollDelta, ScrollHandle, TestAppContext, Window, div, point, prelude::*, px,

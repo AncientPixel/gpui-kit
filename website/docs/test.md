@@ -220,8 +220,7 @@ IDs such as `("row", record_id)` preserve record identity after reordering.
 
 ## Interact and assert
 
-Import `TestWindowExt` for existing operations, `TestWindowQueryExt` for `find_all`,
-and `TestWindowClickExt` for configurable clicks from `gpui_kit::test`:
+Import `gpui_kit::test::TestWindowExt` for queries and interactions:
 
 | API | Behavior |
 | --- | --- |

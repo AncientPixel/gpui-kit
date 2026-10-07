@@ -27,6 +27,9 @@ pub trait TestWindowExt {
     fn find(&self, id: impl Into<ElementId>) -> ElementSnapshot;
     /// Returns None for an absent target; ambiguous IDs still require a scope.
     fn try_find(&self, id: impl Into<ElementId>) -> Option<ElementSnapshot>;
+    /// Returns all registered matches from the last completed frame, including invisible ones.
+    /// Ordered by bounds origin (y, then x); equal-origin order is unspecified.
+    fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot>;
     /// Restricts queries to a GPUI identity scope; no additional layout wrapper is needed.
     fn within(&mut self, id: impl Into<ElementId>) -> ScopedWindow<'_>;
     /// Invalidates cached facts and completes a frame.
@@ -34,6 +37,19 @@ pub trait TestWindowExt {
     fn click(&mut self, id: impl Into<ElementId>, cx: &mut App);
     /// Clicks at a local offset from the target's top-left corner.
     fn click_at(&mut self, id: impl Into<ElementId>, offset: Point<Pixels>, cx: &mut App);
+    /// Dispatches modifiers-changed when necessary, then move/down/up, and restores
+    /// the previous modifier state with another modifiers-changed event after the click.
+    /// Each step renders a frame; caps lock is preserved.
+    fn click_with_options(&mut self, id: impl Into<ElementId>, options: ClickOptions, cx: &mut App);
+    /// A centered left click with modifiers; restores the previous modifier state.
+    fn click_with_modifiers(
+        &mut self,
+        id: impl Into<ElementId>,
+        modifiers: Modifiers,
+        cx: &mut App,
+    ) {
+        self.click_with_options(id, ClickOptions::new().with_modifiers(modifiers), cx);
+    }
     fn right_click(&mut self, id: impl Into<ElementId>, cx: &mut App);
     fn double_click(&mut self, id: impl Into<ElementId>, cx: &mut App);
     fn hover(&mut self, id: impl Into<ElementId>, cx: &mut App);
@@ -48,18 +64,6 @@ pub trait TestWindowExt {
     fn press(&mut self, key: &str, cx: &mut App);
     /// Sends text to the current focus; does not focus a target or replace its whole value.
     fn input(&mut self, text: &str, cx: &mut App);
-}
-
-/// Collection queries, separate from `TestWindowExt` so existing implementations remain valid.
-pub trait TestWindowQueryExt {
-    /// Returns all registered matches from the last completed frame, including invisible ones.
-    /// Ordered by bounds origin (y, then x); equal-origin order is unspecified.
-    fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot>;
-}
-impl TestWindowQueryExt for Window {
-    fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot> {
-        observation::find_all(self, &[], &id.into())
-    }
 }
 
 /// Click configuration owned by the caller. Defaults to one left click at the center,
@@ -122,33 +126,6 @@ impl ClickOptions {
     /// Returns the modifier state for the click sequence.
     pub fn modifiers(&self) -> Modifiers {
         self.modifiers
-    }
-}
-
-/// Configurable clicks, separate from `TestWindowExt` to preserve existing implementations.
-pub trait TestWindowClickExt {
-    /// Dispatches modifiers-changed when necessary, then move/down/up, and restores
-    /// the previous modifier state with another modifiers-changed event after the click.
-    /// Each step renders a frame; caps lock is preserved.
-    fn click_with_options(&mut self, id: impl Into<ElementId>, options: ClickOptions, cx: &mut App);
-    /// A centered left click with modifiers; restores the previous modifier state.
-    fn click_with_modifiers(
-        &mut self,
-        id: impl Into<ElementId>,
-        modifiers: Modifiers,
-        cx: &mut App,
-    ) {
-        self.click_with_options(id, ClickOptions::new().with_modifiers(modifiers), cx);
-    }
-}
-impl TestWindowClickExt for Window {
-    fn click_with_options(
-        &mut self,
-        id: impl Into<ElementId>,
-        options: ClickOptions,
-        cx: &mut App,
-    ) {
-        click_with_options_target(self, &[], id.into(), options, cx);
     }
 }
 
@@ -348,6 +325,9 @@ impl TestWindowExt for Window {
     fn try_find(&self, id: impl Into<ElementId>) -> Option<ElementSnapshot> {
         observation::find(self, &[], &id.into())
     }
+    fn find_all(&self, id: impl Into<ElementId>) -> Vec<ElementSnapshot> {
+        observation::find_all(self, &[], &id.into())
+    }
     fn within(&mut self, id: impl Into<ElementId>) -> ScopedWindow<'_> {
         let scope = observation::scope(self, &[], &id.into());
         ScopedWindow {
@@ -370,6 +350,14 @@ impl TestWindowExt for Window {
             ClickOptions::new().with_offset(offset),
             cx,
         );
+    }
+    fn click_with_options(
+        &mut self,
+        id: impl Into<ElementId>,
+        options: ClickOptions,
+        cx: &mut App,
+    ) {
+        click_with_options_target(self, &[], id.into(), options, cx);
     }
     fn right_click(&mut self, id: impl Into<ElementId>, cx: &mut App) {
         click_target(

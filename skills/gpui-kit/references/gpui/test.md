@@ -169,9 +169,8 @@ fn saves_a_profile_through_the_ui(cx: &mut TestAppContext) {
 
 ## Queries and interactions
 
-Import `TestWindowExt`, `TestWindowQueryExt` (collection queries), and
-`TestWindowClickExt` (configurable clicks) from `gpui_kit::test`. For custom
-registration, import `TestSupportExt`. Use normal Rust assertions with snapshots.
+Import `TestWindowExt` for queries and interactions from `gpui_kit::test`.
+For custom registration, import `TestSupportExt`. Use normal Rust assertions with snapshots.
 
 | API | Behavior |
 | --- | --- |

@@ -182,8 +182,7 @@ assert!(save.visible());
 
 ## 操作与断言
 
-从 `gpui_kit::test` 导入 `TestWindowExt` 使用已有操作，导入
-`TestWindowQueryExt` 使用 `find_all`，导入 `TestWindowClickExt` 使用可配置点击：
+从 `gpui_kit::test` 导入 `TestWindowExt` 使用查询和交互方法：
 
 | API | 行为 |
 | --- | --- |

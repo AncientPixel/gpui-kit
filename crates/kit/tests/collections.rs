@@ -5,7 +5,7 @@ use gpui_kit::component::{
     table::{Column, DataTable, TableDelegate, TableSelection, TableState},
     tree::{Tree, TreeItem, TreeState},
 };
-use gpui_kit::test::{TestWindowClickExt, TestWindowExt};
+use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     App, AppContext, Context, Entity, Focusable, Modifiers, TestAppContext, Window, div,
     prelude::*, px, size,
