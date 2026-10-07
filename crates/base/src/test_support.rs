@@ -155,7 +155,7 @@ pub fn find(window: &Window, scope: &[ElementId], id: &ElementId) -> Option<Elem
 }
 
 /// Every match for `id` below `scope`, top to bottom, then left to right by
-/// bounds origin. Matches at the same origin are ordered by path.
+/// bounds origin. Includes invisible registrations; equal-origin order is unspecified.
 #[doc(hidden)]
 pub fn find_all(window: &Window, scope: &[ElementId], id: &ElementId) -> Vec<ElementSnapshot> {
     let mut matches: Vec<_> = REGISTRY.with(|registry| {
@@ -175,10 +175,7 @@ pub fn find_all(window: &Window, scope: &[ElementId], id: &ElementId) -> Vec<Ele
             .map(|entry| entry.facts.borrow().clone())
             .collect()
     });
-    matches.sort_by_cached_key(|entry| {
-        let origin = entry.bounds.origin;
-        (origin.y, origin.x, format!("{:?}", entry.path))
-    });
+    matches.sort_unstable_by_key(|entry| (entry.bounds.origin.y, entry.bounds.origin.x));
     matches
 }
 

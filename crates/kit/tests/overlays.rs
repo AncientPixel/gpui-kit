@@ -6,7 +6,7 @@ use gpui_kit::component::{
     input::{Input, InputState},
     notification::Notification,
 };
-use gpui_kit::test::{TestAppContextExt, TestWindowExt};
+use gpui_kit::test::{TestAppContextExt, TestWindowExt, TestWindowQueryExt};
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, TestAppContext, Window, div, prelude::*, px, size,
 };

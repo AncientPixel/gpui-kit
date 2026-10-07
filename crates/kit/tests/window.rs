@@ -1,5 +1,5 @@
 mod common;
-use gpui_kit::test::{TestSupportExt, TestWindowExt};
+use gpui_kit::test::{TestSupportExt, TestWindowExt, TestWindowQueryExt};
 use gpui_kit::{AppContext, Context, TestAppContext, Window, div, prelude::*, px, size};
 
 struct Example {
