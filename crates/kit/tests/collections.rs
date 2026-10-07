@@ -263,39 +263,44 @@ fn table_keyboard_leaves_rows_unselected_when_rows_are_not_selectable(cx: &mut T
 
 /// A table whose first column sorts and whose second does not, recording what
 /// the table reports back to its delegate.
-struct Ledger {
-    rows: usize,
-    sorts: Vec<(usize, ColumnSort)>,
-    visible_rows: Vec<Range<usize>>,
+struct TableProbe {
+    rows_count: usize,
+    sort_calls: Vec<(usize, ColumnSort)>,
+    visible_row_ranges: Vec<Range<usize>>,
 }
-impl Ledger {
-    fn new(rows: usize) -> Self {
+impl TableProbe {
+    fn new(rows_count: usize) -> Self {
         Self {
-            rows,
-            sorts: Vec::new(),
-            visible_rows: Vec::new(),
+            rows_count,
+            sort_calls: Vec::new(),
+            visible_row_ranges: Vec::new(),
         }
     }
 }
-impl TableDelegate for Ledger {
+impl TableDelegate for TableProbe {
     fn columns_count(&self, _: &App) -> usize {
         2
     }
     fn rows_count(&self, _: &App) -> usize {
-        self.rows
+        self.rows_count
     }
-    fn column(&self, ix: usize, _: &App) -> Column {
-        let column = Column::new(format!("column-{ix}"), format!("Column {ix}")).width(px(180.));
-        if ix == 0 { column.sortable() } else { column }
+    fn column(&self, col_ix: usize, _: &App) -> Column {
+        let column =
+            Column::new(format!("column-{col_ix}"), format!("Column {col_ix}")).width(px(180.));
+        if col_ix == 0 {
+            column.sortable()
+        } else {
+            column
+        }
     }
     fn render_td(
         &mut self,
-        row: usize,
-        col: usize,
+        row_ix: usize,
+        col_ix: usize,
         _: &mut Window,
         _: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        div().child(format!("{row}:{col}"))
+        div().child(format!("{row_ix}:{col_ix}"))
     }
     fn perform_sort(
         &mut self,
@@ -304,7 +309,7 @@ impl TableDelegate for Ledger {
         _: &mut Window,
         _: &mut Context<TableState<Self>>,
     ) {
-        self.sorts.push((col_ix, sort));
+        self.sort_calls.push((col_ix, sort));
     }
     fn visible_rows_changed(
         &mut self,
@@ -312,30 +317,30 @@ impl TableDelegate for Ledger {
         _: &mut Window,
         _: &mut Context<TableState<Self>>,
     ) {
-        self.visible_rows.push(visible_range);
+        self.visible_row_ranges.push(visible_range);
     }
 }
-struct LedgerView {
-    table: Entity<TableState<Ledger>>,
+struct TableProbeView {
+    table: Entity<TableState<TableProbe>>,
     stripe: bool,
 }
-impl Render for LedgerView {
+impl Render for TableProbeView {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .child(DataTable::new(&self.table).stripe(self.stripe))
     }
 }
-fn open_ledger(
+fn open_table_probe(
     cx: &mut TestAppContext,
-    rows: usize,
+    rows_count: usize,
     stripe: bool,
-) -> (gpui_kit::AnyWindowHandle, Entity<TableState<Ledger>>) {
+) -> (gpui_kit::AnyWindowHandle, Entity<TableState<TableProbe>>) {
     cx.update(gpui_kit::init);
     let (handle, content) =
         common::open_window(cx, Some(size(px(640.), px(320.))), |window, cx| {
-            cx.new(|cx| LedgerView {
-                table: cx.new(|cx| TableState::new(Ledger::new(rows), window, cx)),
+            cx.new(|cx| TableProbeView {
+                table: cx.new(|cx| TableState::new(TableProbe::new(rows_count), window, cx)),
                 stripe,
             })
         });
@@ -347,14 +352,14 @@ fn open_ledger(
 
 #[gpui_kit::test]
 fn table_header_click_sorts_sortable_columns_and_selects_the_rest(cx: &mut TestAppContext) {
-    let (handle, table) = open_ledger(cx, 3, false);
+    let (handle, table) = open_table_probe(cx, 3, false);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         for _ in 0..3 {
             window.click(("col-header", 0usize), cx);
         }
         assert_eq!(
-            table.read(cx).delegate().sorts,
+            table.read(cx).delegate().sort_calls,
             vec![
                 (0, ColumnSort::Descending),
                 (0, ColumnSort::Ascending),
@@ -365,34 +370,40 @@ fn table_header_click_sorts_sortable_columns_and_selects_the_rest(cx: &mut TestA
 
         window.click(("col-header", 1usize), cx);
         assert_eq!(table.read(cx).selected_col(), Some(1));
-        assert_eq!(table.read(cx).delegate().sorts.len(), 3);
+        assert_eq!(table.read(cx).delegate().sort_calls.len(), 3);
     })
     .unwrap();
 }
 
 #[gpui_kit::test]
 fn table_reports_one_row_and_empty_visible_ranges(cx: &mut TestAppContext) {
-    let (handle, table) = open_ledger(cx, 1, false);
+    let (handle, table) = open_table_probe(cx, 1, false);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        assert_eq!(table.read(cx).delegate().visible_rows.last(), Some(&(0..1)));
+        assert_eq!(
+            table.read(cx).delegate().visible_row_ranges.last(),
+            Some(&(0..1))
+        );
 
         table.update(cx, |table, cx| {
-            table.delegate_mut().rows = 0;
+            table.delegate_mut().rows_count = 0;
             cx.notify();
         });
         window.render_frame(cx);
-        assert_eq!(table.read(cx).delegate().visible_rows.last(), Some(&(0..0)));
+        assert_eq!(
+            table.read(cx).delegate().visible_row_ranges.last(),
+            Some(&(0..0))
+        );
     })
     .unwrap();
 }
 
 #[gpui_kit::test]
 fn table_visible_range_stops_at_the_last_row_under_stripe_filler(cx: &mut TestAppContext) {
-    let (handle, table) = open_ledger(cx, 3, true);
+    let (handle, table) = open_table_probe(cx, 3, true);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        let reported = table.read(cx).delegate().visible_rows.clone();
+        let reported = table.read(cx).delegate().visible_row_ranges.clone();
         assert!(!reported.is_empty());
         assert!(
             reported.iter().all(|range| range.end <= 3),

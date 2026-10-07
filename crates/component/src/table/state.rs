@@ -822,11 +822,11 @@ where
     /// A click on a sortable column's header, or on its sort icon, cycles the sort;
     /// a click on any other header selects the column.
     fn on_col_head_click(&mut self, col_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let sortable = self
+        let column_sortable = self
             .col_groups
             .get(col_ix)
             .is_some_and(|col_group| col_group.column.sort.is_some());
-        if self.sortable && sortable {
+        if self.sortable && column_sortable {
             self.perform_sort(col_ix, window, cx);
             return;
         }
