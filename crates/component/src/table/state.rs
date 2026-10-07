@@ -1333,13 +1333,22 @@ where
     fn update_visible_range_if_need(
         &mut self,
         visible_range: Range<usize>,
+        items_count: usize,
         axis: Axis,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Skip when visible range is only 1 item.
+        // Skip when visible range is only 1 item, unless there is at most 1 item.
         // The visual_list will use first item to measure.
-        if visible_range.len() <= 1 {
+        if visible_range.len() <= 1 && items_count > 1 {
+            return;
+        }
+
+        // Stripe filler rows are rendered past the last row; never report them.
+        let end = visible_range.end.min(items_count);
+        let visible_range = visible_range.start.min(end)..end;
+        // A range wholly past the last item is stale; the list scrolls back next frame.
+        if visible_range.is_empty() && items_count > 0 {
             return;
         }
 
@@ -2145,6 +2154,7 @@ where
                                     move |table, visible_range: Range<usize>, window, cx| {
                                         table.update_visible_range_if_need(
                                             visible_range.clone(),
+                                            columns_count.saturating_sub(left_columns_count),
                                             Axis::Horizontal,
                                             window,
                                             cx,
@@ -2459,6 +2469,8 @@ where
         };
 
         let empty_view = if rows_count == 0 {
+            // The rows list is not rendered, so report the empty range here.
+            self.update_visible_range_if_need(0..0, 0, Axis::Vertical, window, cx);
             Some(
                 div()
                     .size_full()
@@ -2520,6 +2532,7 @@ where
                                         );
                                         table.update_visible_range_if_need(
                                             visible_range.clone(),
+                                            rows_count,
                                             Axis::Vertical,
                                             window,
                                             cx,
